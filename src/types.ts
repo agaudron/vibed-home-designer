@@ -1,0 +1,241 @@
+// All linear measurements are in millimetres. Plan coordinates: x to the right, y downwards.
+
+export interface Vec {
+  x: number;
+  y: number;
+}
+
+export type FacadeFinish =
+  | 'brick'
+  | 'painted_brick'
+  | 'render'
+  | 'paint'
+  | 'weatherboard'
+  | 'vertical'
+  | 'panel'
+  | 'timber'
+  | 'stone'
+  | 'block';
+
+/** External finish for the outside face of walls. */
+export interface Facade {
+  finish: FacadeFinish;
+  color: string;
+  /** Mortar / joint colour (brick and block). */
+  mortar: string;
+}
+
+/** How an outside wall is built (sets its thickness and how it's drawn). */
+export type Construction = 'brick_veneer' | 'double_brick' | 'clad_frame' | 'block';
+
+export interface Wall {
+  id: string;
+  start: Vec;
+  end: Vec;
+  thickness: number;
+  height: number;
+  color: string;
+  /** Outside finish for this wall only (otherwise the house facade is used). */
+  facade?: Facade | null;
+  /** Construction of an outside wall (brick veneer etc.); null = plain wall. */
+  construction?: Construction | null;
+  /** Lining for each inside face of this wall (+normal side / −normal side); unset = the room's lining. */
+  lining?: { pos?: LiningType | null; neg?: LiningType | null };
+  /** Paint colour for one face only (+normal side / −normal side); unset = `color`. */
+  sideColor?: { pos?: string; neg?: string };
+}
+
+export type OpeningKind =
+  | 'door'
+  | 'double_door'
+  | 'sliding_door'
+  | 'stacker_door'
+  | 'cavity_door'
+  | 'garage_door'
+  | 'window'
+  | 'opening';
+
+/** Door leaf designs (entrance doors follow Hume ranges). */
+/** Door leaf design id (see DOOR_DESIGNS in the catalog: Hume entrance/internal, Corinthian, generic). */
+export type DoorDesign = string;
+
+export type DressingType = 'roller' | 'roman' | 'venetian' | 'sheer' | 'blockout' | 'sheer_blockout';
+export interface WindowDressing {
+  type: DressingType;
+  color: string;
+  /** 0 = closed (blinds lowered, curtains drawn across), 1 = fully open. */
+  open: number;
+  /** Curtains: to the floor or just below the sill. */
+  length?: 'floor' | 'sill';
+  /** Roller / Roman blinds: light filtering or blockout fabric. */
+  fabric?: 'light' | 'blockout';
+  /** Which face of the wall, for windows in internal walls (+1 = the wall's normal side). */
+  side?: 1 | -1;
+}
+
+export type GarageStyle = 'sectional' | 'sectional_windows' | 'roller' | 'tilt' | 'timber' | 'glass';
+
+export interface Opening {
+  id: string;
+  wallId: string;
+  kind: OpeningKind;
+  /** Distance along the wall from its start point to the centre of the opening. */
+  offset: number;
+  width: number;
+  height: number;
+  /** Height of the bottom of the opening above the floor (window sill). */
+  sill: number;
+  /** Hinge at the far end of the opening instead of the near end. */
+  hingeEnd: boolean;
+  /** Swing to the other side of the wall. */
+  flip: boolean;
+  color: string;
+  /** Garage doors: which kind of door. */
+  style?: GarageStyle;
+  /** Hinged doors: leaf design, glass and jamb type. */
+  design?: DoorDesign;
+  glass?: 'clear' | 'translucent' | 'cathedral' | 'reeded' | 'frosted' | 'grey';
+  /** Hinged doors: handle type, height to its centre (mm) and finish colour. */
+  handle?: { type?: 'lever' | 'knob' | 'pull' | 'flush' | 'none'; height?: number; finish?: string };
+  /** Curtains or blinds on the inside of a window / glass door. */
+  dressing?: WindowDressing;
+  /** Stacker doors: number of sliding panels (2–4) and the width of each panel. */
+  panels?: number;
+  panelWidth?: number;
+  jamb?: 'single' | 'double';
+  /** Hinged door: fixed glazed sidelight panels beside the door (included in `width`). */
+  sidelight?: { hinge: boolean; latch: boolean; width: number };
+}
+
+export interface Item {
+  id: string;
+  type: string;
+  name: string;
+  /** Centre of the item footprint. */
+  x: number;
+  y: number;
+  /** Degrees, clockwise in plan view. The item's back is its local -y side. */
+  rotation: number;
+  width: number;
+  depth: number;
+  height: number;
+  /** Height of the item's base above the floor (e.g. wall cabinets). */
+  elevation: number;
+  color: string;
+  /** Veranda/porch: covered by the main roof instead of its own (its outer edge acts like an outside wall). */
+  underRoof?: boolean;
+  /** Configurable items (e.g. Timberline vanities): their chosen options. */
+  options?: Record<string, string | number>;
+}
+
+export type FloorFinish = 'timber' | 'hybrid' | 'tile' | 'large_tile' | 'carpet' | 'concrete';
+
+/** Inside wall lining. */
+export type LiningType = 'plaster' | 'vj' | 'vj_dado' | 'shiplap' | 'board_batten';
+
+export type CorniceType = 'none' | 'square_set' | 'cove55' | 'cove90' | 'shadowline' | 'classic' | 'federation';
+export type SkirtingType = 'none' | 'shadow' | 'square66' | 'square90' | 'square135' | 'pencil' | 'bullnose' | 'colonial' | 'lambs_tongue';
+
+export interface Room {
+  id: string;
+  name: string;
+  points: Vec[];
+  /** Floor finish for this room; null = the house flooring. */
+  floor: FloorFinish | null;
+  /** Floor colour (with `floor`); null = default colour for the finish. */
+  color: string | null;
+  /** Cornice for this room; null/undefined = the house cornice. */
+  cornice?: CorniceType | null;
+  /** Skirting for this room; null/undefined = the house skirting. */
+  skirting?: SkirtingType | null;
+  /** Direction the boards run in this room (degrees, 0 = left–right on the plan); null = house direction. */
+  floorDirection?: number | null;
+  /** Wall lining in this room; null/undefined = the house lining. */
+  wallLining?: LiningType | null;
+}
+
+export interface Dimension {
+  id: string;
+  a: Vec;
+  b: Vec;
+}
+
+export interface Settings {
+  snap: number;
+  wallThickness: number;
+  wallHeight: number;
+  showDimensions: boolean;
+  showRoomDimensions: boolean;
+  /** Colour of walls in 3D. */
+  wallColor: string;
+  /** Height of hinged / cavity doors. */
+  doorHeight: number;
+  /** Ceiling colour (walk-through). */
+  ceilingColor: string;
+  /** Ceiling height; null = height of the tallest outside wall. */
+  ceilingHeight: number | null;
+  /** House flooring (rooms can override). */
+  flooring: { finish: FloorFinish; color: string; direction?: number };
+  /** House cornice and skirting (rooms can override). */
+  cornice: CorniceType;
+  skirting: SkirtingType;
+  skirtingColor: string;
+  /** House style for interior doors (doors on inside walls without their own design follow it). */
+  interiorDoor?: { design: DoorDesign; glass?: Opening['glass']; color: string; jamb: 'single' | 'double' };
+  /** Inside wall lining for the house (rooms can override). */
+  wallLining?: LiningType;
+  /** Last construction applied to the outside walls. */
+  construction?: Construction | null;
+}
+
+export type RoofStyle = 'hip' | 'gable' | 'flat' | 'skillion';
+
+export interface Roof {
+  style: RoofStyle;
+  /** Degrees. */
+  pitch: number;
+  /** Eaves overhang beyond the outside face of the walls. */
+  overhang: number;
+  /** Height of the top of the walls the roof sits on; null = tallest wall. */
+  eaveHeight: number | null;
+  /** Visible thickness of the roof edge (fascia). */
+  fascia: number;
+  color: string;
+  /** Skillion only: which way the roof rises, in 90° steps relative to the building. */
+  skillionDir: 0 | 90 | 180 | 270;
+  /** Hip/gable: bring every main wing's ridge to the same height (steeper pitch on narrower wings). */
+  levelRidges?: boolean;
+}
+
+export interface Design {
+  app: 'home-designer';
+  version: 1;
+  name: string;
+  walls: Wall[];
+  openings: Opening[];
+  items: Item[];
+  rooms: Room[];
+  dimensions: Dimension[];
+  settings: Settings;
+  roof: Roof | null;
+  /** Default outside finish for the house. */
+  facade: Facade;
+}
+
+export type EntityKind = 'wall' | 'opening' | 'item' | 'room' | 'dimension' | 'roof' | 'facade';
+
+export interface Selection {
+  kind: EntityKind;
+  id: string;
+}
+
+export type Tool =
+  | { kind: 'select' }
+  | { kind: 'wall' }
+  | { kind: 'room' }
+  | { kind: 'floor' }
+  | { kind: 'measure' }
+  | { kind: 'place'; itemType: string }
+  | { kind: 'opening'; catalogId: string };
+
+export type ViewMode = '2d' | 'split' | '3d';

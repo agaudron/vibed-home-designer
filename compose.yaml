@@ -1,0 +1,7 @@
+services:
+  home-designer:
+    build: .
+    image: home-designer:latest
+    ports:
+      - "${PORT:-8080}:80"
+    restart: unless-stopped
