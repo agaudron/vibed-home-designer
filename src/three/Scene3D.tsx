@@ -1386,6 +1386,13 @@ export default function Scene3D() {
         const r = renderer.domElement.getBoundingClientRect();
         return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
       };
+      // Close every door leaf (tests / screenshots).
+      (window as unknown as Record<string, unknown>).__closeDoors = () => {
+        house.traverse((o) => {
+          if (o.userData.doorLeaf) o.rotation.y = 0;
+        });
+        render();
+      };
       // Move the walker (tests).
       (window as unknown as Record<string, unknown>).__walkTo = (x: number, y: number) => {
         if (walk) walk.p = { x, y };

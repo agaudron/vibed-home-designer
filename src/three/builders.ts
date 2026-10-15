@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, SKYLIGHT_DEFAULTS, SOLAR_DEFAULTS, SOLAR_GAP, SOLAR_PANELS, VANITY_DEFAULTS } from '../catalog';
 import { dressingSide, sidelights, stackerLayout } from '../geometry';
 import { BACKSET, doorHandle } from '../doorClearance';
+import { humeLayout } from '../humeDoors';
 import type { Item, Opening } from '../types';
 
 // Everything in the 3D scene is in millimetres. Item-local axes: x = width, z = depth
@@ -1007,6 +1008,10 @@ function routed([x0, y0, x1, y1]: R, w = 6): R[] {
 }
 
 function leafLayout(design: string, lw: number, lh: number): { glass: R[]; panels: R[]; grooves: R[] } {
+  if (design.startsWith('hume:')) {
+    const h = humeLayout(design.slice(5), lw, lh);
+    if (h) return h;
+  }
   const st = Math.min(120, lw * 0.15); // stile width
   switch (design) {
     case 'shaker':

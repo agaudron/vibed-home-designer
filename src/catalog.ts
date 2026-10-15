@@ -1,3 +1,4 @@
+import { HUME_MODELS, humeKey } from './humeDoors';
 import type { DoorDesign, GarageStyle, OpeningKind } from './types';
 
 export interface ItemDef {
@@ -403,16 +404,16 @@ export const DOOR_DESIGNS: Record<string, DoorDesignDef> = {
   flush: { name: 'Flush (plain)', group: 'Generic', layout: 'flush', glass: false, color: '#f4f1ea', use: 'internal' },
   shaker: { name: 'Shaker (single recessed panel)', group: 'Generic', layout: 'shaker', glass: false, color: '#f4f1ea', use: 'internal' },
 
-  savoy: { name: 'Savoy — timber, vertical glass panel', group: 'Hume — entrance', models: 'Hume Savoy range, e.g. XS24, XS28', layout: 'savoy', glass: true, color: '#8a5a3c', use: 'entrance' },
-  linear: { name: 'Linear — grooved, slim glass strip', group: 'Hume — entrance', models: 'Hume Linear range, e.g. XLR160, XLR310, XLR320', layout: 'linear', glass: true, color: '#3e434c', use: 'entrance' },
-  newington: { name: 'Newington — stacked glass slots', group: 'Hume — entrance', models: 'Hume Newington range, e.g. XN1, XN5, XN6', layout: 'newington', glass: true, color: '#f4f4ef', use: 'entrance' },
-  vaucluse: { name: 'Vaucluse — panels with top glass', group: 'Hume — entrance', models: 'Hume Vaucluse range, e.g. XV1, XV9', layout: 'vaucluse', glass: true, color: '#f4f4ef', use: 'entrance' },
-  joinery: { name: 'Joinery (Hamptons) — glazed lites over a panel', group: 'Hume — entrance', models: 'Hume Joinery range, e.g. JST1', layout: 'joinery', glass: true, color: '#f4f4ef', use: 'entrance' },
-  haven: { name: 'Haven (Hamptons) — large framed glass', group: 'Hume — entrance', models: 'Hume Haven range', layout: 'haven', glass: true, color: '#f4f4ef', use: 'entrance' },
+  savoy: { name: 'Savoy — timber, vertical glass panel', group: 'Hume — quick styles', models: 'Hume Savoy range, e.g. XS24, XS28', layout: 'savoy', glass: true, color: '#8a5a3c', use: 'entrance' },
+  linear: { name: 'Linear — grooved, slim glass strip', group: 'Hume — quick styles', models: 'Hume Linear range, e.g. XLR160, XLR310, XLR320', layout: 'linear', glass: true, color: '#3e434c', use: 'entrance' },
+  newington: { name: 'Newington — stacked glass slots', group: 'Hume — quick styles', models: 'Hume Newington range, e.g. XN1, XN5, XN6', layout: 'newington', glass: true, color: '#f4f4ef', use: 'entrance' },
+  vaucluse: { name: 'Vaucluse — panels with top glass', group: 'Hume — quick styles', models: 'Hume Vaucluse range, e.g. XV1, XV9', layout: 'vaucluse', glass: true, color: '#f4f4ef', use: 'entrance' },
+  joinery: { name: 'Joinery (Hamptons) — glazed lites over a panel', group: 'Hume — quick styles', models: 'Hume Joinery range, e.g. JST1', layout: 'joinery', glass: true, color: '#f4f4ef', use: 'entrance' },
+  haven: { name: 'Haven (Hamptons) — large framed glass', group: 'Hume — quick styles', models: 'Hume Haven range', layout: 'haven', glass: true, color: '#f4f4ef', use: 'entrance' },
   // Hume Haven HAV44 (catalogue Jul 2022): 2 × 2 glass lites with slim glazing bars over one routed bottom panel.
   hume_hav44: {
-    name: 'Haven HAV44 — four lites over a panel',
-    group: 'Hume — entrance',
+    name: 'HAV44 — 4 glass lites over a panel',
+    group: 'Hume entrance — Haven',
     models: 'Hume Haven HAV44 (matching sidelite HAV45)',
     layout: 'hav44',
     glass: true,
@@ -424,13 +425,13 @@ export const DOOR_DESIGNS: Record<string, DoorDesignDef> = {
     note: 'Standard 2040 × 820 × 40 (custom 1990–2400 high × 805–1200 wide). HAV45 sidelite 400 wide (custom 330–500). Solid HMR MDF core, DuraXP primed faces for painting, BAL12.5. Optional V-groove faces.',
   },
 
-  hume_accent: { name: 'Accent — routed grooves', group: 'Hume — internal', models: 'Hume Accent range, e.g. HA4, HA5', layout: 'accent', glass: false, color: '#f4f4ef', use: 'internal' },
-  hume_accent_glazed: { name: 'Accent glazed — grooves with glass', group: 'Hume — internal', models: 'Hume Accent range, e.g. HAG6, HAG9', layout: 'accent_glass', glass: true, color: '#f4f4ef', use: 'internal' },
-  hume_linear_int: { name: 'Linear — horizontal grooves', group: 'Hume — internal', models: 'Hume Linear internal range, e.g. HLR230, HLR400', layout: 'grooves_h', glass: false, color: '#f4f4ef', use: 'internal' },
-  hume_hayman: { name: 'Moulded Panel — Hayman two panel', group: 'Hume — internal', models: 'Hume Moulded Panel range, Hayman', layout: 'panels2', glass: false, color: '#f4f4ef', use: 'internal' },
+  hume_accent: { name: 'Accent — routed grooves', group: 'Hume — quick styles', models: 'Hume Accent range, e.g. HA4, HA5', layout: 'accent', glass: false, color: '#f4f4ef', use: 'internal' },
+  hume_accent_glazed: { name: 'Accent glazed — grooves with glass', group: 'Hume — quick styles', models: 'Hume Accent range, e.g. HAG6, HAG9', layout: 'accent_glass', glass: true, color: '#f4f4ef', use: 'internal' },
+  hume_linear_int: { name: 'Linear — horizontal grooves', group: 'Hume — quick styles', models: 'Hume Linear internal range, e.g. HLR230, HLR400', layout: 'grooves_h', glass: false, color: '#f4f4ef', use: 'internal' },
+  hume_hayman: { name: 'Moulded Panel — Hayman two panel', group: 'Hume — quick styles', models: 'Hume Moulded Panel range, Hayman', layout: 'panels2', glass: false, color: '#f4f4ef', use: 'internal' },
   hume_ham1_glass: {
-    name: 'Hampton HAM1 — shaker frame, full glass panel',
-    group: 'Hume — internal',
+    name: 'HAM1 — shaker frame, glass panel',
+    group: 'Hume internal — Hampton',
     models: 'Hume Hampton HAM1 (glazed, clear or translucent)',
     layout: 'ham1_glass',
     glass: true,
@@ -439,8 +440,8 @@ export const DOOR_DESIGNS: Record<string, DoorDesignDef> = {
     note: 'Internal sizes 2040/2340 high × 520–920 wide, 35 mm.',
   },
   hume_ham1_panel: {
-    name: 'Hampton HAM1 — shaker frame, MDF inlay panel',
-    group: 'Hume — internal',
+    name: 'HAM1 — shaker frame, MDF panel',
+    group: 'Hume internal — Hampton',
     models: 'Hume Hampton HAM1 (primed MDF)',
     layout: 'ham1_panel',
     glass: false,
@@ -448,7 +449,7 @@ export const DOOR_DESIGNS: Record<string, DoorDesignDef> = {
     use: 'internal',
     note: 'Internal sizes 2040/2340 high × 520–920 wide, 35 mm.',
   },
-  hume_oakfield: { name: 'Oakfield — oak veneer', group: 'Hume — internal', models: 'Hume Oakfield range, e.g. HC2', layout: 'veneer', glass: false, color: '#c8a77c', use: 'internal' },
+  hume_oakfield: { name: 'Oakfield — oak veneer', group: 'Hume — quick styles', models: 'Hume Oakfield range, e.g. HC2', layout: 'veneer', glass: false, color: '#c8a77c', use: 'internal' },
 
   cor_madison: { name: 'Madison — routed panels', group: 'Corinthian — internal', models: 'Corinthian Madison internal, e.g. PMADIN4', layout: 'madison', glass: false, color: '#f4f4ef', use: 'internal' },
   cor_moda: { name: 'Moda — glazed insert', group: 'Corinthian — internal', models: 'Corinthian Moda, e.g. PMOD1GC (clear glass)', layout: 'moda', glass: true, color: '#f4f4ef', use: 'internal' },
@@ -796,4 +797,34 @@ export function solarArraySize(o: Record<string, string | number>): [number, num
   const cols = Number(o.cols) || 1;
   const rows = Number(o.rows) || 1;
   return [cols * pw + (cols - 1) * SOLAR_GAP, rows * pl + (rows - 1) * SOLAR_GAP];
+}
+
+// Every Hume Doors catalogue model (entrance and internal), grouped by range. Sidelites appear with their doors.
+for (const mdl of HUME_MODELS) {
+  if (mdl.sideliteOnly) continue;
+  const lites = mdl.els.filter((e) => e[0] === 'g').length;
+  const panels = mdl.els.filter((e) => e[0] === 'p').length;
+  const grooved = mdl.els.some((e) => e[0] === 'v' || e[0] === 'h' || e[0] === 'r');
+  const desc = [
+    lites ? `${lites} glass ${lites === 1 ? 'lite' : 'lites'}` : '',
+    panels ? `${panels} ${panels === 1 ? 'panel' : 'panels'}` : '',
+    grooved && !lites && !panels ? 'routed / grooved' : '',
+    !lites && !panels && !grooved ? 'plain' : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  DOOR_DESIGNS[humeKey(mdl.code)] = {
+    name: `${mdl.code} — ${desc}`,
+    group: `Hume ${mdl.use === 'entrance' ? 'entrance' : 'internal'} — ${mdl.range}`,
+    models: `Hume ${mdl.range} ${mdl.code}`,
+    layout: humeKey(mdl.code),
+    glass: !!mdl.glass,
+    color: mdl.color,
+    use: mdl.use,
+    glassTypes: mdl.use === 'entrance' ? ['translucent', 'clear', 'cathedral', 'grey'] : ['clear', 'translucent'],
+    ...(mdl.sidelite ? { sidelight: humeKey(mdl.sidelite), sidelightWidths: [HUME_MODELS.find((x) => x.code === mdl.sidelite)?.sideliteWidth ?? mdl.sideliteWidth ?? 400] } : {}),
+    note: [mdl.note, mdl.sidelite ? `Matching sidelite: ${mdl.sidelite}.` : '', 'Drawn from Hume’s July 2022 catalogue; check exact details, sizes and options with Hume.']
+      .filter(Boolean)
+      .join(' '),
+  };
 }
