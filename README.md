@@ -62,6 +62,10 @@ The image builds the app and serves it with nginx. Your plans are stored in your
 - **More space**: collapse the left catalog or the right properties panel with the ‹ › buttons on their edges, or with `[` and `]`. The choice is remembered.
 - **Export**: a PNG of the 3D view, or an SVG of the floor plan.
 
+## Terms of use & privacy
+
+Home Designer is a design and visualisation tool only: not building, structural or engineering advice, and its measurements and estimates are approximate. The full **Terms of use** and **Privacy policy** are in the app (a notice on first visit, and **⚙ Settings → About**). In short: no accounts, analytics or tracking; designs stay in your browser and your own files; the walk-through music loads YouTube's player.
+
 ## Shortcuts
 
 | Key | Action |

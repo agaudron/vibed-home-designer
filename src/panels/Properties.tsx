@@ -7,6 +7,7 @@ import { faceColor, clampOpeningOffset, DEFAULT_INTERIOR_DOOR, STACKER_FRAME, ST
 import { QUALITIES, setQuality, store, useStore } from '../store';
 import type { RenderQuality } from '../store';
 import FloorAreas from './FloorAreas';
+import { openLegal } from './Legal';
 import RoomMaterials from './RoomMaterials';
 import { checkDoor, clearOffset, doorHandle, HANDLE_FINISHES, HANDLES, MIN_OPEN } from '../doorClearance';
 import type { HandleType } from '../doorClearance';
@@ -451,6 +452,19 @@ function DesignProps({ design }: { design: Design }) {
           <dt>Space + drag</dt>
           <dd>Pan</dd>
         </dl>
+      </Section>
+      <Section title="About">
+        <p className="note">
+          Home Designer is a design and visualisation tool only — not building, structural or engineering advice. Measurements and
+          estimates are approximate.{' '}
+          <a href="#" onClick={(e) => (e.preventDefault(), openLegal('terms'))}>
+            Terms of use
+          </a>{' '}
+          ·{' '}
+          <a href="#" onClick={(e) => (e.preventDefault(), openLegal('privacy'))}>
+            Privacy
+          </a>
+        </p>
       </Section>
     </>
   );

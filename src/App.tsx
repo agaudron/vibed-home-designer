@@ -4,6 +4,7 @@ import { saveDesign } from './fileio';
 import { isFormControl, isTyping } from './keyboard';
 import Catalog from './panels/Catalog';
 import Properties from './panels/Properties';
+import Legal from './panels/Legal';
 import Toolbar from './panels/Toolbar';
 import PlanView from './plan/PlanView';
 import { store, togglePanel, useStore } from './store';
@@ -102,6 +103,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <Legal />
       <Toolbar />
       <div className="main">
         {hideCatalog ? (
