@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, SKYLIGHT_DEFAULTS, VANITY_DEFAULTS } from '../catalog';
+import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, SKYLIGHT_DEFAULTS, SOLAR_DEFAULTS, SOLAR_GAP, SOLAR_PANELS, VANITY_DEFAULTS } from '../catalog';
 import { dressingSide, sidelights, stackerLayout } from '../geometry';
 import { BACKSET, doorHandle } from '../doorClearance';
 import type { Item, Opening } from '../types';
@@ -360,6 +360,19 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
     case 'buffet_lombardozzi':
       oakBuffet(b, it);
       break;
+    case 'abi_vanity':
+    case 'abi_basin':
+    case 'abi_bath':
+    case 'abi_toilet':
+    case 'abi_sink':
+    case 'abi_mirror':
+    case 'abi_towel_rail':
+    case 'abi_bath_filler':
+    case 'abi_shower':
+    case 'abi_tap':
+    case 'abi_accessory':
+      abiFixture(b, it);
+      break;
     case 'shelving_rack':
     case 'shelving_rack_tall':
     case 'shelving_rack_narrow':
@@ -368,6 +381,9 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
     case 'skylight':
     case 'sun_tunnel':
       skylight(b, it, ctx.sky);
+      break;
+    case 'solar_array':
+      solarArray(b, it, ctx.sky);
       break;
     case 'banquette':
     case 'banquette_l':
@@ -1958,4 +1974,233 @@ function drawHandle(b: Builder, o: Opening, dir: number, lw: number) {
       b.cyl(11, 11, 320, x, y - 160, out(66), fin, met);
     }
   }
+}
+
+// ---------- ABI Interiors fixtures ----------
+/** Rounded-rectangle footprint extruded upwards (for basins, baths, sinks). */
+function roundedSlab(b: Builder, w: number, d: number, h: number, r: number, x: number, y: number, z: number, color: string, opts?: MatOpts) {
+  const s = new THREE.Shape();
+  const rr = Math.max(1, Math.min(r, w / 2 - 1, d / 2 - 1));
+  s.moveTo(-w / 2 + rr, -d / 2);
+  s.lineTo(w / 2 - rr, -d / 2);
+  s.quadraticCurveTo(w / 2, -d / 2, w / 2, -d / 2 + rr);
+  s.lineTo(w / 2, d / 2 - rr);
+  s.quadraticCurveTo(w / 2, d / 2, w / 2 - rr, d / 2);
+  s.lineTo(-w / 2 + rr, d / 2);
+  s.quadraticCurveTo(-w / 2, d / 2, -w / 2, d / 2 - rr);
+  s.lineTo(-w / 2, -d / 2 + rr);
+  s.quadraticCurveTo(-w / 2, -d / 2, -w / 2 + rr, -d / 2);
+  const geo = new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false, curveSegments: 10 });
+  geo.rotateX(-Math.PI / 2); // extrude upwards; shape y becomes -z
+  const mesh = new THREE.Mesh(geo, b.m(color, opts));
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  b.g.add(mesh);
+  return mesh;
+}
+
+/**
+ * ABI Interiors products, drawn by type from their real sizes and finish (item colour). The product's ABI
+ * sub-category (options.group) picks the variant, e.g. pedestal vs wall-hung basins, round mirrors, ladders.
+ */
+function abiFixture(b: Builder, it: Item) {
+  const { width: w, depth: d, height: h, color: c } = it;
+  const cls = it.type.slice(4);
+  const group = String(it.options?.group ?? '');
+  const name = it.name;
+  const metal: MatOpts = { metal: 0.7, rough: 0.3 };
+  const ceramic = '#f7f7f5';
+  const glass: MatOpts = { metal: 0.25, rough: 0.12 }; // reads as a mirror without an environment to reflect
+  switch (cls) {
+    case 'vanity': {
+      // Wall-hung cabinet (sits off the floor by its elevation) with drawer fronts and a top; basin(s) above.
+      // No tap: ABI sells those separately (add an ABI tap / mixer).
+      b.box(w, h - 20, d - 10, 0, 0, -5, c);
+      fronts(b, w, 0, h - 20, d / 2 - 10, Math.max(1, Math.round(w / 600)), h > 600 ? 2 : 1, shade(c, 1.04), 'bar');
+      b.box(w, 20, d, 0, h - 20, 0, '#f4f4f2', { rough: 0.3 });
+      const n = /double/i.test(name) ? 2 : 1;
+      for (let i = 0; i < n; i++) {
+        const x = -w / 2 + (w / n) * (i + 0.5);
+        const bowl = b.cyl(Math.min(200, w / n / 3), Math.min(170, w / n / 3.4), 120, x, h, 30, ceramic, { rough: 0.15 });
+        bowl.scale.z = 0.8;
+      }
+      break;
+    }
+    case 'basin': {
+      if (/pedestal/i.test(group)) {
+        // Free-standing pedestal basin: column with the bowl on top.
+        b.cyl(Math.min(w, d) * 0.28, Math.min(w, d) * 0.34, h - 160, 0, 0, 0, c, { rough: 0.6 });
+        roundedSlab(b, w, d, 160, Math.min(w, d) / 2, 0, h - 160, 0, c, { rough: 0.5 });
+      } else if (/round/i.test(group) || Math.abs(w - d) < 30) {
+        b.cyl(w / 2, w / 2.4, h, 0, 0, 0, c, { rough: 0.3 });
+      } else roundedSlab(b, w, d, h, Math.min(w, d) * 0.25, 0, 0, 0, c, { rough: 0.3 });
+      b.cyl(Math.min(w, d) * 0.4, Math.min(w, d) * 0.4, 3, 0, h - 2, 0, shade(c, 0.85)); // bowl
+      break;
+    }
+    case 'bath': {
+      const freestanding = /freestanding|round|concrete/i.test(group) || /freestanding/i.test(name);
+      roundedSlab(b, w, d, h, freestanding ? Math.min(w, d) * 0.45 : 40, 0, 0, 0, c, { rough: 0.3 });
+      roundedSlab(b, w - 110, d - 110, 3, freestanding ? Math.min(w, d) * 0.4 : 30, 0, h - 1, 0, '#dce9ef', { rough: 0.1 });
+      break;
+    }
+    case 'toilet': {
+      b.box(w * 0.9, 400, 170, 0, 400, -d / 2 + 85, c, { rough: 0.2 });
+      const bowl = b.cyl(w / 2, w * 0.38, 400, 0, 0, -d / 2 + 170 + (d - 170) / 2, c, { rough: 0.2 });
+      bowl.scale.z = (d - 170) / w;
+      const seat = b.cyl(w / 2, w / 2, 25, 0, 400, -d / 2 + 170 + (d - 170) / 2, '#f8f8f8', { rough: 0.3 });
+      seat.scale.z = (d - 170) / w;
+      break;
+    }
+    case 'sink': {
+      // Inset sink: rim at the top (benchtop height), bowl(s) below.
+      const n = /double/i.test(group) || /double/i.test(name) ? 2 : 1;
+      b.box(w, 6, d, 0, h - 6, 0, c, metal);
+      for (let i = 0; i < n; i++) {
+        const bw = (w - 60 - (n - 1) * 30) / n;
+        const x = -w / 2 + 30 + bw / 2 + i * (bw + 30);
+        b.box(bw, h - 6, d - 60, x, 0, 0, shade(c, 0.85), metal);
+      }
+      break;
+    }
+    case 'mirror': {
+      if (/round/i.test(group) || Math.abs(w - h) < 20) {
+        const frame = b.cyl(w / 2, w / 2, Math.max(15, d), 0, 0, 0, c, metal);
+        frame.rotation.x = Math.PI / 2;
+        frame.position.set(0, h / 2, 0);
+        const pane = b.cyl(w / 2 - 15, w / 2 - 15, 4, 0, 0, 0, '#dfe8ec', glass);
+        pane.rotation.x = Math.PI / 2;
+        pane.position.set(0, h / 2, Math.max(15, d) / 2 + 1);
+      } else {
+        b.box(w, h, Math.max(15, d), 0, 0, 0, c, /cabinet/i.test(group) ? undefined : metal);
+        b.box(w - 30, h - 30, 4, 0, 15, Math.max(15, d) / 2 + 1, '#dfe8ec', glass);
+      }
+      break;
+    }
+    case 'towel_rail': {
+      const ladder = h > 300;
+      for (const sx of [-1, 1]) b.box(22, h, 22, sx * (w / 2 - 11), 0, -d / 2 + 11, c, metal);
+      const bars = ladder ? Math.max(3, Math.round(h / 120)) : 1;
+      for (let i = 0; i < bars; i++) {
+        const y = ladder ? 40 + (i * (h - 80)) / Math.max(1, bars - 1) : h / 2;
+        const bar = b.cyl(10, 10, w - 22, 0, 0, 0, c, metal);
+        bar.rotation.z = Math.PI / 2;
+        bar.position.set(0, y, d / 2 - 15);
+      }
+      break;
+    }
+    case 'bath_filler': {
+      // Floor-standing bath spout.
+      b.cyl(35, 35, 10, 0, 0, 0, c, metal);
+      b.cyl(18, 18, h - 60, 0, 10, 0, c, metal);
+      b.box(30, 30, Math.max(120, d - 60), 0, h - 50, Math.max(120, d - 60) / 2 - 15, c, metal);
+      break;
+    }
+    case 'shower': {
+      // Head on an arm from the wall, a rail and hand shower if it's a set.
+      const set = /set|rail/i.test(group) || /rail/i.test(name);
+      const headR = Math.max(50, Math.min(150, w / 2));
+      b.box(20, 20, Math.max(120, d - headR), 0, h - 30, Math.max(120, d - headR) / 2 - 10, c, metal);
+      const head = b.cyl(headR, headR, 12, 0, h - 45, Math.max(120, d - headR), c, metal);
+      head.castShadow = false;
+      if (set) {
+        b.box(18, Math.max(400, h * 0.7), 18, 0, h * 0.25, -d / 2 + 30, c, metal);
+        b.box(25, 220, 25, 0, h * 0.25 + Math.max(400, h * 0.7) * 0.6, -d / 2 + 60, c, metal);
+      }
+      break;
+    }
+    case 'tap': {
+      // Wall or deck mounted mixer / spout, sized from ABI's reach and height.
+      const wall = /wall|shower|bath tap|spout/i.test(group) && !/basin taps|sink/i.test(group);
+      if (wall) {
+        const plate = b.cyl(30, 30, 10, 0, 0, 0, c, metal);
+        plate.rotation.x = Math.PI / 2;
+        plate.position.set(0, h / 2, -d / 2 + 5);
+        b.box(22, 22, d - 10, 0, h / 2 - 11, 5, c, metal);
+      } else {
+        b.cyl(22, 25, h, 0, 0, -d / 2 + 30, c, metal);
+        b.box(20, 20, d - 30, 0, h - 20, 15, c, metal);
+      }
+      break;
+    }
+    default: {
+      // Accessories: a small wall plate with the fitting.
+      b.box(Math.max(30, w), Math.max(20, h), 12, 0, 0, -d / 2 + 6, c, metal);
+      if (d > 30) b.box(Math.max(20, w * 0.8), 18, d - 12, 0, h / 2 - 9, 6, c, metal);
+    }
+  }
+}
+
+// ---------- Solar panels ----------
+const cellTextures = new Map<string, THREE.Texture>();
+/** Cell pattern for a panel face (half-cut cells: a fine grid). */
+function cellTexture(cols: number, rows: number): THREE.Texture {
+  const key = `${cols}x${rows}`;
+  const hit = cellTextures.get(key);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 512;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = 'rgba(0,0,0,0.35)';
+  for (let i = 1; i < cols; i++) g.fillRect((i * c.width) / cols - 1, 0, 2, c.height);
+  for (let j = 1; j < rows; j++) g.fillRect(0, (j * c.height) / rows - 1, c.width, 2);
+  g.fillStyle = 'rgba(0,0,0,0.5)';
+  g.fillRect(0, c.height / 2 - 2, c.width, 4); // the split between the two halves
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  cellTextures.set(key, tex);
+  return tex;
+}
+
+/**
+ * A rows × columns array of panels on rails, lying on the roof slope under the item's centre (skylight-style roof
+ * context). With no roof under it, it's a ground-mounted frame tilted to 20°.
+ */
+function solarArray(b: Builder, it: Item, sky: ItemContext['sky']) {
+  const o = { ...SOLAR_DEFAULTS, ...(it.options ?? {}) };
+  const p = SOLAR_PANELS[String(o.panel)] ?? SOLAR_PANELS.jinko_tiger_neo_440;
+  const portrait = o.orient !== 'landscape';
+  const pw = portrait ? p.short : p.long; // across
+  const pl = portrait ? p.long : p.short; // up the slope
+  const cols = Math.max(1, Number(o.cols) || 1);
+  const rows = Math.max(1, Number(o.rows) || 1);
+  const W = cols * pw + (cols - 1) * SOLAR_GAP;
+  const L = rows * pl + (rows - 1) * SOLAR_GAP;
+  const group = new THREE.Group();
+  if (sky?.roof && !sky.cutaway) {
+    // Lay it in the roof plane: x across (the item's width), z up/down the slope.
+    const n = new THREE.Vector3(...sky.roof.n).normalize();
+    const u = new THREE.Vector3(1, 0, 0).addScaledVector(n, -n.x).normalize();
+    const v = new THREE.Vector3().crossVectors(u, n).normalize();
+    group.matrixAutoUpdate = false;
+    group.matrix.makeBasis(u, n, v).setPosition(0, sky.roof.y + 90, 0);
+  } else if (sky?.cutaway) return;
+  else {
+    // Ground mount: legs and a 20° tilt.
+    group.position.y = 300;
+    group.rotation.x = -0.35;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(50, sz > 0 ? 300 : 300 + L * 0.34, 50, sx * (W / 2 - 100), 0, sz * (L / 2 - 100), '#9a9c9e');
+  }
+  b.g.add(group);
+  const gb = new Builder(group, b.m);
+  // Rails under each row of panels.
+  for (const z of [-L / 2 + L * 0.2, L / 2 - L * 0.2]) gb.box(W + 100, 40, 40, 0, -50, z, '#9ea2a6', { metal: 0.6, rough: 0.4 });
+  const tex = cellTexture(portrait ? 6 : 18, portrait ? 18 : 6);
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      const x = -W / 2 + pw / 2 + c * (pw + SOLAR_GAP);
+      const z = -L / 2 + pl / 2 + r * (pl + SOLAR_GAP);
+      gb.box(pw, p.thick, pl, x, -p.thick + 10, z, p.frame, { metal: 0.5, rough: 0.4 });
+      const glassMat = b.m(p.cells, { metal: 0.6, rough: 0.12 }) as THREE.MeshStandardMaterial;
+      glassMat.map = tex;
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(pw - 30, pl - 30), glassMat);
+      face.rotation.x = -Math.PI / 2;
+      face.position.set(x, 11, z);
+      face.receiveShadow = true;
+      group.add(face);
+    }
 }

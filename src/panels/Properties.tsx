@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { DRESSINGS, DRESSING_FABRICS, BANQUETTE_BACKS, BANQUETTE_DEFAULTS, SKYLIGHT_DEFAULTS, SKYLIGHT_MODELS, SKYLIGHT_SIZES, SUN_TUNNEL_SIZES, UPHOLSTERY, COLORBOND, DOOR_DESIGNS, TIMBERLINE, VANITY_DEFAULTS, FLOOR_COLORS, FLOOR_NAMES, FLOOR_SWATCHES, GARAGE_STYLES, ITEM_MAP } from '../catalog';
+import { useEffect, useMemo, useState } from 'react';
+import { SOLAR_DEFAULTS, SOLAR_PANELS, solarArraySize, GUTTER_STYLES, ROOF_MATERIALS, ROOF_PROFILES, TILE_COLOURS, productLink, DRESSINGS, DRESSING_FABRICS, BANQUETTE_BACKS, BANQUETTE_DEFAULTS, SKYLIGHT_DEFAULTS, SKYLIGHT_MODELS, SKYLIGHT_SIZES, SUN_TUNNEL_SIZES, UPHOLSTERY, COLORBOND, DOOR_DESIGNS, TIMBERLINE, VANITY_DEFAULTS, FLOOR_COLORS, FLOOR_NAMES, FLOOR_SWATCHES, GARAGE_STYLES, ITEM_MAP } from '../catalog';
 import { CORNICES, DIRECTIONAL_FLOORS, LININGS, SKIRTINGS, liningFor, wallFaces } from '../trims';
 import type { TrimProfile } from '../trims';
 import { addOrSelectRoof, detectRoomsWithMessage, duplicateWalls, removeDuplicateWallsWithMessage, squareUpWallsWithMessage, deleteSelection, duplicateSelection, isDoorKind, setGlobalDoorHeight, setGlobalWallColor, setGlobalWallHeight, rotateSelection, setWallLength, splitWall } from '../actions';
@@ -9,6 +9,7 @@ import type { RenderQuality } from '../store';
 import FloorAreas from './FloorAreas';
 import { openLegal } from './Legal';
 import RoomMaterials from './RoomMaterials';
+import { openProductCard } from './ProductCard';
 import { checkDoor, clearOffset, doorHandle, HANDLE_FINISHES, HANDLES, MIN_OPEN } from '../doorClearance';
 import type { HandleType } from '../doorClearance';
 import { exteriorSides, FINISHES } from '../facade';
@@ -298,8 +299,11 @@ function ItemProps({ it }: { it: Item }) {
       <ColorField label="Colour" value={it.color} onChange={(c) => set({ color: c })} />
       {(it.type === 'veranda' || it.type === 'porch') && <UnderRoof it={it} />}
       {it.type === 'vanity_tl' && <TimberlineOptions it={it} />}
+      {it.type.startsWith('abi_') && <AbiOptions it={it} />}
+      <ProductLinkRow it={it} />
       {(it.type === 'banquette' || it.type === 'banquette_l') && <BanquetteOptions it={it} />}
       {(it.type === 'skylight' || it.type === 'sun_tunnel') && <SkylightOptions it={it} />}
+      {it.type === 'solar_array' && <SolarOptions it={it} />}
       {it.type.startsWith('shelving_rack') && (
         <>
           <Field label="Tiers">
@@ -427,7 +431,9 @@ function DesignProps({ design }: { design: Design }) {
         <NumField label="Snap grid" value={s.snap} min={1} max={1000} onChange={(v) => setS({ snap: v })} />
         <Presets values={[10, 50, 100, 500]} current={s.snap} onPick={(v) => setS({ snap: v })} />
         <Toggle label="Show wall lengths" value={s.showDimensions} onChange={(v) => setS({ showDimensions: v })} />
-        <Toggle label="Show room measurements" value={s.showRoomDimensions} onChange={(v) => setS({ showRoomDimensions: v })} />
+        <Toggle label="Show room sizes (width × length and area)" value={s.showRoomDimensions} onChange={(v) => setS({ showRoomDimensions: v })} />
+        <Toggle label="Show each room's side measurements" value={!!s.showRoomSides} onChange={(v) => setS({ showRoomSides: v })} />
+        <Toggle label="Show clearance measurements (green gaps to walls and items)" value={!!s.showClearances} onChange={(v) => setS({ showClearances: v })} />
       </Section>
       <Section title="Shortcuts">
         <dl className="shortcuts">
@@ -456,16 +462,20 @@ function DesignProps({ design }: { design: Design }) {
       <Section title="About">
         <p className="note">
           Home Designer is a design and visualisation tool only — not building, structural or engineering advice. Measurements and
-          estimates are approximate.{' '}
-          <a href="#" onClick={(e) => (e.preventDefault(), openLegal('terms'))}>
-            Terms of use
-          </a>{' '}
-          ·{' '}
-          <a href="#" onClick={(e) => (e.preventDefault(), openLegal('privacy'))}>
-            Privacy
-          </a>
+          estimates are approximate.
         </p>
       </Section>
+      <footer className="props-footer">
+        <a href="#" onClick={(e) => (e.preventDefault(), openLegal('terms'))}>
+          Terms of Service
+        </a>
+        <a href="#" onClick={(e) => (e.preventDefault(), openLegal('privacy'))}>
+          Privacy Policy
+        </a>
+        <a href="#" onClick={(e) => (e.preventDefault(), openLegal('disclosure'))}>
+          Brand Disclosure
+        </a>
+      </footer>
     </>
   );
 }
@@ -559,13 +569,7 @@ function RoofProps({ roof, design }: { roof: Roof; design: Design }) {
         <Toggle label="Use tallest wall height" value={roof.eaveHeight === null} onChange={(on) => set({ eaveHeight: on ? null : autoPlate })} />
       </div>
       <NumField label="Roof thickness" value={roof.fascia} min={20} max={600} onChange={(v) => set({ fascia: v })} />
-      <ColorField
-        label="Colorbond®"
-        value={roof.color}
-        onChange={(c) => set({ color: c })}
-        swatches={COLORBOND.map((c) => c.hex)}
-        names={Object.fromEntries(COLORBOND.map((c) => [c.hex, c.name]))}
-      />
+      <RoofingOptions roof={roof} set={set} />
       <p className="note">The roof follows your walls automatically. In 3D, “Cutaway walls” or the Roof button hides it so you can see inside.</p>
       <Actions duplicate={false} />
     </Section>
@@ -1653,6 +1657,260 @@ function WallPaint({ w, design }: { w: Wall; design: Design }) {
               </a>
             </span>
           ))}
+      </p>
+    </div>
+  );
+}
+
+/** A link to the real product an item is modelled on. */
+function ProductLinkRow({ it }: { it: Item }) {
+  const link = productLink(it);
+  if (!link) return null;
+  return (
+    <Field label="Product">
+      <span className="product-row">
+        <a className="product-link" href={link.url} target="_blank" rel="noopener noreferrer" title={link.url}>
+          View on {link.label} ↗
+        </a>
+        <button className="product-details-btn" onClick={() => openProductCard({ id: it.id })}>
+          Details
+        </button>
+      </span>
+    </Field>
+  );
+}
+
+type AbiModule = typeof import('../abi');
+let abiModule: Promise<AbiModule> | null = null;
+/** The ABI product list is big, so it's only loaded when an ABI item is selected. */
+const loadAbi = () => (abiModule ??= import('../abi'));
+
+/** Where an ABI product sits off the floor, by kind and ABI's sub-category. */
+function abiElevation(p: { cls: string; group: string; height: number; mount: string; name: string }): number {
+  const h = p.height;
+  switch (p.cls) {
+    case 'vanity':
+      return /floor/i.test(p.mount) ? 0 : Math.max(0, 850 - h);
+    case 'basin':
+      if (/pedestal/i.test(p.group)) return 0;
+      if (/top mount|above/i.test(p.group)) return 850;
+      return Math.max(0, 850 - h);
+    case 'sink':
+      return Math.max(0, 900 - h);
+    case 'mirror':
+      return Math.max(900, 1550 - h / 2);
+    case 'towel_rail':
+      return h > 400 ? 300 : 1000;
+    case 'shower':
+      return /outdoor/i.test(p.group) && h > 1500 ? 0 : Math.max(0, 2100 - h);
+    case 'tap':
+      if (/basin taps|sink|pull-out|mixer taps/i.test(p.group)) return 880;
+      if (/bath/i.test(p.group)) return 650;
+      if (/outdoor/i.test(p.group)) return 600;
+      return 1000;
+    case 'accessory':
+      if (/hook/i.test(p.group)) return 1600;
+      if (/toilet roll/i.test(p.group)) return 750;
+      if (/toilet brush/i.test(p.group)) return 0;
+      if (/hand towel/i.test(p.group)) return 1150;
+      if (/paper towel/i.test(p.group)) return 1300;
+      return 1100;
+    default:
+      return 0;
+  }
+}
+
+/** Pick the actual ABI Interiors product: sets the item's name, size, finish, height and product link. */
+function AbiOptions({ it }: { it: Item }) {
+  const [mod, setMod] = useState<AbiModule | null>(null);
+  useEffect(() => {
+    let live = true;
+    void loadAbi().then((m) => live && setMod(m));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const cls = it.type.slice(4);
+  const products = useMemo(() => (mod ? mod.ABI_PRODUCTS.filter((p) => p.cls === cls) : []), [mod, cls]);
+  const groups = useMemo(() => [...new Set(products.map((p) => p.group))], [products]);
+  const current = String(it.options?.slug ?? '');
+  const p = products.find((x) => x.slug === current);
+  const choose = (slug: string) => {
+    const q = products.find((x) => x.slug === slug);
+    if (!q) return;
+    upd('items', it.id, {
+      name: q.name,
+      width: q.width,
+      depth: q.depth,
+      height: q.height,
+      elevation: abiElevation(q),
+      // Finishes we can't turn into a colour: white for ceramics, otherwise keep the current colour.
+      color: q.hex ?? (cls === 'bath' || cls === 'basin' || cls === 'toilet' ? '#f4f2ee' : it.color),
+      options: { ...(it.options ?? {}), slug: q.slug, group: q.group, finish: q.finish, price: q.price, double: /double/i.test(q.name) ? 1 : 0 },
+    });
+  };
+  if (!mod) return <p className="note">Loading ABI Interiors products…</p>;
+  return (
+    <div className="room-finishes">
+      <Field label="ABI product">
+        <select value={current} onChange={(e) => choose(e.target.value)}>
+          {!p && <option value="">Choose one of {products.length}…</option>}
+          {groups.map((g) => (
+            <optgroup key={g} label={g}>
+              {products
+                .filter((x) => x.group === g)
+                .map((x) => (
+                  <option key={x.slug} value={x.slug} data-swatch={x.hex}>
+                    {x.name}
+                    {x.price ? ` · ${x.price}` : ''}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
+      </Field>
+      {p ? (
+        <p className="note">
+          {[p.finish, `${p.width} × ${p.depth} × ${p.height} mm`, p.price && `${p.price} (when listed)`].filter(Boolean).join(' · ')}. Size and
+          height follow ABI&apos;s published dimensions; adjust them above if needed.
+        </p>
+      ) : (
+        <p className="note">Pick a product to use its real size, finish and price. Type in the list to jump to a name.</p>
+      )}
+    </div>
+  );
+}
+
+/** Roofing material, profile and colour, and COLORBOND® gutters / downpipes. */
+function RoofingOptions({ roof, set }: { roof: Roof; set: (patch: Partial<Roof>) => void }) {
+  const material = roof.material ?? 'colorbond';
+  const tiles = material !== 'colorbond';
+  const profiles = ROOF_MATERIALS[material].profiles;
+  const profile = roof.profile && profiles.includes(roof.profile) ? roof.profile : profiles[0];
+  const palette = tiles ? TILE_COLOURS : COLORBOND;
+  const gutter = roof.gutter ?? { style: 'none' as const, color: roof.color, downpipes: true };
+  const setGutter = (patch: Partial<NonNullable<Roof['gutter']>>) => set({ gutter: { ...gutter, ...patch } });
+  const soffit = roof.soffit ?? { show: true, color: '#f4f4f0' };
+  return (
+    <>
+      <Field label="Roofing">
+        <select
+          value={material}
+          onChange={(e) => {
+            const m = e.target.value as NonNullable<Roof['material']>;
+            const nextTiles = m !== 'colorbond';
+            // Switching between steel and tiles: pick a colour from the new range if the current one isn't in it.
+            const pal = nextTiles ? TILE_COLOURS : COLORBOND;
+            const keep = pal.some((c) => c.hex.toLowerCase() === roof.color.toLowerCase());
+            set({ material: m, profile: ROOF_MATERIALS[m].profiles[0] as Roof['profile'], color: keep ? roof.color : m === 'terracotta_tile' ? '#b5583a' : pal[0].hex });
+          }}
+        >
+          {Object.entries(ROOF_MATERIALS).map(([k, m]) => (
+            <option key={k} value={k}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Profile">
+        <select value={profile} onChange={(e) => set({ profile: e.target.value as Roof['profile'] })}>
+          {profiles.map((p) => (
+            <option key={p} value={p}>
+              {ROOF_PROFILES[p]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <ColorField
+        label={tiles ? 'Tile colour' : 'COLORBOND®'}
+        value={roof.color}
+        onChange={(c) => set({ color: c })}
+        swatches={palette.map((c) => c.hex)}
+        names={Object.fromEntries(palette.map((c) => [c.hex, c.name]))}
+      />
+      <ColorField
+        label="Fascia COLORBOND®"
+        value={roof.fasciaColor ?? (gutter.style !== 'none' ? gutter.color : roof.color)}
+        onChange={(c) => set({ fasciaColor: c })}
+        swatches={COLORBOND.map((c) => c.hex)}
+        names={Object.fromEntries(COLORBOND.map((c) => [c.hex, c.name]))}
+      />
+      {roof.fasciaColor && (
+        <p className="note">
+          <a href="#" onClick={(e) => (e.preventDefault(), set({ fasciaColor: undefined }))}>
+            Match the gutters
+          </a>
+        </p>
+      )}
+      <Toggle label="Eave lining (Villaboard)" value={soffit.show !== false} onChange={(v) => set({ soffit: { ...soffit, show: v } })} />
+      {soffit.show !== false && <ColorField label="Eave lining colour" value={soffit.color} onChange={(c) => set({ soffit: { ...soffit, color: c } })} paint="exterior" />}
+      <Field label="Gutters">
+        <select value={gutter.style} onChange={(e) => setGutter({ style: e.target.value as NonNullable<Roof['gutter']>['style'] })}>
+          <option value="none">None</option>
+          {Object.entries(GUTTER_STYLES).map(([k, n]) => (
+            <option key={k} value={k}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {gutter.style !== 'none' && (
+        <>
+          <ColorField
+            label="Gutter COLORBOND®"
+            value={gutter.color}
+            onChange={(c) => setGutter({ color: c })}
+            swatches={COLORBOND.map((c) => c.hex)}
+            names={Object.fromEntries(COLORBOND.map((c) => [c.hex, c.name]))}
+          />
+          <Toggle label="Downpipes at the corners" value={gutter.downpipes} onChange={(v) => setGutter({ downpipes: v })} />
+          <p className="note">Gutters run along the eaves (not up gable ends). Downpipes come down at outside corners; check your plumber’s layout for the real number and size.</p>
+        </>
+      )}
+    </>
+  );
+}
+
+/** Solar array: panel (Jinko, Trina, SunPower), rows × columns and orientation; the item's size follows. */
+function SolarOptions({ it }: { it: Item }) {
+  const o = { ...SOLAR_DEFAULTS, ...(it.options ?? {}) };
+  const p = SOLAR_PANELS[String(o.panel)] ?? SOLAR_PANELS.jinko_tiger_neo_440;
+  const set = (patch: Record<string, string | number>) => {
+    const next = { ...o, ...patch };
+    const [w, d] = solarArraySize(next);
+    const panel = SOLAR_PANELS[String(next.panel)] ?? p;
+    upd('items', it.id, { options: next, width: w, depth: d, color: panel.frame, name: `Solar panels — ${panel.brand} ${panel.model}` });
+  };
+  const count = Number(o.rows) * Number(o.cols);
+  const kw = (count * p.watts) / 1000;
+  return (
+    <div className="room-finishes">
+      <Field label="Panel">
+        <select value={String(o.panel)} onChange={(e) => set({ panel: e.target.value })}>
+          {Object.entries(SOLAR_PANELS).map(([k, x]) => (
+            <option key={k} value={k}>
+              {x.brand} {x.model}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <NumField label="Rows" value={Number(o.rows)} min={1} max={12} step={1} suffix="" onChange={(v) => set({ rows: Math.round(v) })} hint="Panels up the roof" />
+      <NumField label="Columns" value={Number(o.cols)} min={1} max={30} step={1} suffix="" onChange={(v) => set({ cols: Math.round(v) })} hint="Panels across the roof" />
+      <Field label="Orientation">
+        <span className="presets inline">
+          {(['portrait', 'landscape'] as const).map((k) => (
+            <button key={k} className={o.orient === k ? 'on' : ''} onClick={() => set({ orient: k })}>
+              {k === 'portrait' ? 'Portrait' : 'Landscape'}
+            </button>
+          ))}
+        </span>
+      </Field>
+      <p className="note">
+        <b>
+          {count} × {p.watts} W = {kw.toFixed(2)} kW
+        </b>{' '}
+        · {(count * p.long * p.short / 1e6).toFixed(1)} m² of panels · about {Math.round(count * p.kg)} kg. Place it over the roof and turn it (R) so the
+        rows run along the slope; it lies on the roof in 3D. Roof space, setbacks, orientation and shading need checking by a solar installer.
       </p>
     </div>
   );

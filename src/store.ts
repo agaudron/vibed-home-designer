@@ -27,7 +27,19 @@ export interface AppState {
 }
 
 export function defaultRoof(): Roof {
-  return { style: 'hip', pitch: 22.5, overhang: 450, eaveHeight: null, fascia: 200, color: '#4b4c46', skillionDir: 0, levelRidges: true }; // Woodland Grey
+  return {
+    style: 'hip',
+    pitch: 22.5,
+    overhang: 450,
+    eaveHeight: null,
+    fascia: 200,
+    color: '#4b4c46', // Woodland Grey
+    skillionDir: 0,
+    levelRidges: true,
+    material: 'colorbond',
+    profile: 'corrugated',
+    gutter: { style: 'quad', color: '#4b4c46', downpipes: true },
+  };
 }
 
 export function emptyDesign(): Design {

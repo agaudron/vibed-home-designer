@@ -98,6 +98,34 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
     case 'mirror':
     case 'towel_rail':
       return <rect x={-hw} y={-hd} width={w} height={d} className="sym-dashed" />;
+    case 'abi_vanity':
+      return itemSymbol(options?.double ? 'double_vanity' : 'vanity', w, d, options);
+    case 'abi_basin':
+    case 'abi_bath_filler':
+      return <ellipse cx={0} cy={0} rx={hw - 10} ry={hd - 10} />;
+    case 'abi_bath':
+      return (
+        <>
+          <rect x={-hw} y={-hd} width={w} height={d} rx={Math.min(hw, hd) * 0.6} />
+          <rect x={-hw + 60} y={-hd + 60} width={w - 120} height={d - 120} rx={Math.min(hw, hd) * 0.5} />
+        </>
+      );
+    case 'abi_toilet':
+      return itemSymbol('toilet', w, d, options);
+    case 'abi_sink':
+      return (
+        <>
+          <rect x={-hw} y={-hd} width={w} height={d} />
+          <rect x={-hw + 30} y={-hd + 30} width={w - 60} height={d - 60} rx={30} />
+        </>
+      );
+    case 'abi_mirror':
+    case 'abi_towel_rail':
+    case 'abi_shower':
+    case 'abi_accessory':
+      return <rect x={-hw} y={-hd} width={w} height={d} className="sym-dashed" />;
+    case 'abi_tap':
+      return <circle cx={0} cy={0} r={Math.max(hw, 25)} />;
     case 'shelving_rack':
     case 'shelving_rack_tall':
     case 'shelving_rack_narrow':
@@ -109,6 +137,22 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
           {L(-hw + 40, 0, hw - 40, 0)}
         </>
       );
+    case 'solar_array': {
+      // Panel grid.
+      const cols = Math.max(1, Number(options?.cols ?? 5));
+      const rows = Math.max(1, Number(options?.rows ?? 2));
+      return (
+        <>
+          {Array.from({ length: cols * rows }, (_, i) => {
+            const c = i % cols;
+            const r = Math.floor(i / cols);
+            const pw = (w - (cols - 1) * 20) / cols;
+            const ph = (d - (rows - 1) * 20) / rows;
+            return <rect key={i} x={-hw + c * (pw + 20)} y={-hd + r * (ph + 20)} width={pw} height={ph} className="sym-dashed" />;
+          })}
+        </>
+      );
+    }
     case 'skylight':
       // Overhead: dashed outline with the usual cross.
       return (

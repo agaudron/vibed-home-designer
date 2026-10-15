@@ -49,7 +49,7 @@ interface Obstacle {
 }
 
 /** Things you walk on or that are overhead: a door swings over or under them. */
-const NOT_IN_THE_WAY = new Set(['rug', 'deck', 'patio', 'veranda', 'porch', 'pergola', 'stairs', 'skylight', 'sun_tunnel']);
+const NOT_IN_THE_WAY = new Set(['rug', 'deck', 'patio', 'veranda', 'porch', 'pergola', 'stairs', 'skylight', 'sun_tunnel', 'solar_array']);
 
 const obstacleCache = new WeakMap<Design, Obstacle[]>();
 /** Walls and furniture as rectangles (walls include the bits that run into joints). */

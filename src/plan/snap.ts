@@ -116,6 +116,7 @@ function rayWallIntersection(design: Design, o: Vec, dir: Vec, near: Vec, tol: n
 
 /** Item types that make sense to stand freely in the room rather than backing onto a wall. */
 const FREE_STANDING = new Set([
+  'solar_array',
   'skylight',
   'sun_tunnel',
   'rug',

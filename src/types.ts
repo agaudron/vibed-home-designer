@@ -166,6 +166,10 @@ export interface Settings {
   wallHeight: number;
   showDimensions: boolean;
   showRoomDimensions: boolean;
+  /** Green clearance measurements (gaps to walls / items) while selecting, dragging and placing. Off by default. */
+  showClearances?: boolean;
+  /** Each room's side lengths drawn along its walls (the room's overall size and area always show). Off by default. */
+  showRoomSides?: boolean;
   /** Colour of walls in 3D. */
   wallColor: string;
   /** Height of hinged / cavity doors. */
@@ -205,7 +209,21 @@ export interface Roof {
   skillionDir: 0 | 90 | 180 | 270;
   /** Hip/gable: bring every main wing's ridge to the same height (steeper pitch on narrower wings). */
   levelRidges?: boolean;
+  /** Roofing: COLORBOND® steel sheet or tiles (default steel). */
+  material?: RoofMaterial;
+  /** Sheet or tile profile. */
+  profile?: RoofProfile;
+  /** Gutters along the eaves (and downpipes). */
+  gutter?: { style: GutterStyle | 'none'; color: string; downpipes: boolean };
+  /** Eave lining (Villaboard / fibre-cement soffit) under the eaves; unset = shown, white. */
+  soffit?: { show: boolean; color: string };
+  /** Fascia board colour; unset = matches the gutters (or the roof with no gutters). */
+  fasciaColor?: string;
 }
+
+export type RoofMaterial = 'colorbond' | 'concrete_tile' | 'terracotta_tile';
+export type RoofProfile = 'corrugated' | 'trapezoidal' | 'kliplok' | 'flat_tile' | 'wave_tile';
+export type GutterStyle = 'quad' | 'half_round' | 'square_line' | 'fascia' | 'ogee';
 
 export interface Design {
   app: 'home-designer';

@@ -5,6 +5,7 @@ import { isFormControl, isTyping } from './keyboard';
 import Catalog from './panels/Catalog';
 import Properties from './panels/Properties';
 import Legal from './panels/Legal';
+import ProductCard from './panels/ProductCard';
 import Toolbar from './panels/Toolbar';
 import PlanView from './plan/PlanView';
 import { store, togglePanel, useStore } from './store';
@@ -120,6 +121,7 @@ export default function App() {
           </div>
         )}
         <div className={`views mode-${viewMode}`}>
+          <ProductCard />
           {viewMode !== '3d' && (
             <div className="view-pane">
               <PlanView />

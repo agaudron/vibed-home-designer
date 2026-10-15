@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { CATEGORIES, ITEMS, OPENINGS } from '../catalog';
+import { isProductType } from '../productInfo';
+import { openProductCard } from './ProductCard';
 import type { ItemDef, OpeningDef } from '../catalog';
 import { itemOutline, itemSymbol } from '../plan/symbols';
 import { store, useStore } from '../store';
@@ -36,18 +38,24 @@ export default function Catalog() {
     groups.push([
       cat,
       list.map((d) => (
-        <button
-          key={d.type}
-          className={`cat-item${tool.kind === 'place' && tool.itemType === d.type ? ' active' : ''}`}
-          onClick={() => store.setTool({ kind: 'place', itemType: d.type })}
-          title={`${d.name} — ${d.width} × ${d.depth} × ${d.height} mm. Click, then click on the plan.`}
-        >
-          <ItemIcon def={d} />
-          <span className="cat-name">{d.name}</span>
-          <span className="cat-size">
-            {d.width}×{d.depth}
-          </span>
-        </button>
+        <div key={d.type} className="cat-cell">
+          <button
+            className={`cat-item${tool.kind === 'place' && tool.itemType === d.type ? ' active' : ''}`}
+            onClick={() => store.setTool({ kind: 'place', itemType: d.type })}
+            title={`${d.name} — ${d.width} × ${d.depth} × ${d.height} mm. Click, then click on the plan.`}
+          >
+            <ItemIcon def={d} />
+            <span className="cat-name">{d.name}</span>
+            <span className="cat-size">
+              {d.width}×{d.depth}
+            </span>
+          </button>
+          {isProductType(d.type) && (
+            <button className="cat-info" onClick={() => openProductCard({ type: d.type })} title="Product details" aria-label={`${d.name}: product details`}>
+              i
+            </button>
+          )}
+        </div>
       )),
     ]);
   }

@@ -28,6 +28,7 @@ import type { MeasureLabel, Measures } from './measure3d';
 import { gauss, Mess, Shotgun } from './shotgun';
 import { Music } from './music';
 import { Pickles } from './pickles';
+import WalkWallEditor from '../panels/WalkWallEditor';
 
 const CUTAWAY_HEIGHT = 1200;
 /** YouTube video id: Sabrina Carpenter — House Tour (Official Video), SabrinaCarpenterVEVO. */
@@ -59,6 +60,7 @@ export default function Scene3D() {
   const [locked, setLocked] = useState(false);
   const [armed, setArmed] = useState(false);
   const [carrying, setCarrying] = useState(false);
+  const [wallFace, setWallFace] = useState<{ id: string; side: 1 | -1 } | null>(null);
   const walkSelName = useStore((s) => (s.walking && s.selection?.kind === 'item' ? s.design.items.find((i) => i.id === s.selection!.id)?.name ?? null : null));
   const [toast, setToast] = useState<string | null>(null);
   const [score, setScore] = useState({ kills: 0, left: 0, wave: 0 });
@@ -112,6 +114,9 @@ export default function Scene3D() {
   useEffect(() => {
     if (armed) setMuted(false);
   }, [armed]);
+  useEffect(() => {
+    if (!walking) setWallFace(null);
+  }, [walking]);
   useEffect(() => {
     if (walking) {
       setYtPaused(false);
@@ -342,7 +347,9 @@ export default function Scene3D() {
     const refreshMeasures = () =>
       // While walking, only furniture gets measurements (doors and windows aren't selectable there).
       setMeasures(
-        store.state.walking && store.state.selection?.kind !== 'item' ? null : buildMeasures(store.state.design, store.state.selection, camera.position),
+        !store.state.design.settings.showClearances || (store.state.walking && store.state.selection?.kind !== 'item')
+          ? null
+          : buildMeasures(store.state.design, store.state.selection, camera.position),
       );
     const editLabel = (i: number, l: MeasureLabel) => {
       const input = document.createElement('input');
@@ -577,7 +584,7 @@ export default function Scene3D() {
           ghost.rotation.y = -THREE.MathUtils.degToRad(item.rotation);
           ghostData = { kind: 'item', item };
           // Clearances to walls and other items while placing.
-          setMeasures(measuresForItem(d, { ...item, id: '__ghost' }, false));
+          setMeasures(d.settings.showClearances ? measuresForItem(d, { ...item, id: '__ghost' }, false) : null);
         }
       } else if (tool.kind === 'opening') {
         const hit = wallUnder(e);
@@ -748,9 +755,10 @@ export default function Scene3D() {
     const clickAhead = () => {
       if (carry) return dropCarry();
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      // First thing hit that can be selected (linings, cornices and the ceiling aren't, so clicks go to the wall).
       const hit = raycaster.intersectObject(house, true).find((h) => {
         const mat = (h.object as THREE.Mesh).material as THREE.Material | undefined;
-        return h.object.visible && !(mat && !Array.isArray(mat) && !mat.colorWrite && !selOf(h.object, 'opening'));
+        return h.object.visible && !(mat && !Array.isArray(mat) && !mat.colorWrite && !selOf(h.object, 'opening')) && !!selOf(h.object);
       });
       const sel = hit && hit.distance < 6000 ? selOf(hit.object) : null;
       if (sel?.kind === 'item') {
@@ -761,6 +769,18 @@ export default function Scene3D() {
       }
       if (sel?.kind === 'opening' && hit!.distance < 2600) {
         toggleDoorAhead();
+        return;
+      }
+      if (sel?.kind === 'wall') {
+        // Edit the face you clicked: free the mouse so you can use the wall editor.
+        const w = store.state.design.walls.find((x) => x.id === sel.id);
+        if (w) {
+          const f = wallFrame(w);
+          const side = (hit!.point.x - w.start.x) * f.n.x + (hit!.point.z - w.start.y) * f.n.y >= 0 ? 1 : -1;
+          store.set({ selection: sel });
+          setWallFace({ id: w.id, side });
+          if (document.pointerLockElement === canvas) document.exitPointerLock();
+        }
         return;
       }
       if (store.state.selection) store.set({ selection: null });
@@ -1466,6 +1486,24 @@ export default function Scene3D() {
           referrerPolicy="strict-origin-when-cross-origin"
         />
       )}
+      {walking && wallFace && (
+        <WalkWallEditor
+          wallId={wallFace.id}
+          side={wallFace.side}
+          onClose={() => {
+            setWallFace(null);
+            store.set({ selection: null });
+            // Back to looking around (this click counts as the gesture pointer lock needs).
+            const c = ref.current?.querySelector('canvas');
+            try {
+              const req = c?.requestPointerLock() as unknown as Promise<void> | undefined;
+              req?.catch?.(() => {});
+            } catch {
+              /* drag-to-look */
+            }
+          }}
+        />
+      )}
       {walking && (
         <div className="walk-hud">
           <div className={armed ? 'crosshair armed' : 'crosshair'} />
@@ -1524,6 +1562,7 @@ export default function Scene3D() {
               <>
                 <span>E or click to open / close the door you’re looking at</span>
                 <span>Click furniture to select it, click again to pick it up · R rotate · Del delete · PgUp/PgDn raise</span>
+                <span>Click a wall to change its paint colour, lining or facade</span>
               </>
             )}
             {!armed && (
@@ -1993,18 +2032,28 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
       const wallColor = d.walls[0]?.color ?? '#f2efe9';
       const g = new THREE.Group();
       g.userData.sel = { kind: 'roof', id: 'roof' };
+      // Roofing: sheet ribs / tile courses run down the slope on the top surface.
+      const tiles = d.roof.material === 'concrete_tile' || d.roof.material === 'terracotta_tile';
+      const profile = d.roof.profile ?? (tiles ? 'flat_tile' : 'corrugated');
+      const roofing = roofTexture(profile);
       for (const [mat, color, top] of [
         ['roof', d.roof.color, true],
         ['roof', d.roof.color, false],
         ['infill', wallColor, false],
       ] as const) {
         const infill = mat === 'infill';
-        const geo = facesToGeometry(r.faces.filter((f) => f.mat === mat && !!f.top === top), infill ? FINISHES[d.facade.finish].tile : undefined);
+        const faces = r.faces.filter((f) => f.mat === mat && !!f.top === top);
+        const geo = top ? facesToGeometry(faces, undefined, roofing.tile) : facesToGeometry(faces, infill ? FINISHES[d.facade.finish].tile : undefined);
         if (!geo) continue;
         // Gable ends / skillion infill are outside walls, so they get the house facade.
         const m = infill
           ? (facadeMaterial(d.facade, false) as THREE.MeshStandardMaterial)
-          : new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.15 });
+          : new THREE.MeshStandardMaterial({
+              color,
+              roughness: tiles ? 0.85 : 0.5,
+              metalness: tiles ? 0 : 0.2,
+              map: top ? roofing.tex : null,
+            });
         m.side = THREE.DoubleSide;
         if (sel) {
           m.emissive = new THREE.Color('#2f7bff');
@@ -2021,6 +2070,7 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
         mesh.receiveShadow = true;
         g.add(mesh);
       }
+      g.add(buildEaves(d, r, roofFaces));
       house.add(g);
     }
   }
@@ -2036,7 +2086,7 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
     const selected = isSel('item', it.id);
     const cached = cache.get(it.id);
     // Skylights depend on the roof and ceiling too.
-    const sky = it.type === 'skylight' || it.type === 'sun_tunnel' ? skylightContext(it, roofFaces, ceilingH, cutaway, Math.max(20, d.roof?.fascia ?? 200)) : undefined;
+    const sky = it.type === 'skylight' || it.type === 'sun_tunnel' || it.type === 'solar_array' ? skylightContext(it, roofFaces, ceilingH, cutaway, Math.max(20, d.roof?.fascia ?? 200)) : undefined;
     const skyKey = sky ? JSON.stringify(sky) : '';
     if (cached && cached.item === it && cached.selected === selected && cached.plate === itemPlate && cached.sky === skyKey) {
       house.add(cached.obj);
@@ -2251,11 +2301,28 @@ function ceilingOf(d: Design) {
 }
 
 /** Triangulate roof faces: planar convex polygons as fans, infill strips as quads. */
-function facesToGeometry(faces: RoofFace[], uvTile?: [number, number]): THREE.BufferGeometry | null {
+function facesToGeometry(faces: RoofFace[], uvTile?: [number, number], slopeTile?: [number, number]): THREE.BufferGeometry | null {
   const pos: number[] = [];
-  const push = (p: { x: number; y: number; z: number }) => pos.push(p.x, p.y, p.z);
+  const uvs: number[] = [];
+  // Roof top: u across the slope, v down it, so ribs and tile courses follow the fall of each face.
+  let ax = new THREE.Vector3();
+  let dn = new THREE.Vector3();
+  const push = (p: { x: number; y: number; z: number }) => {
+    pos.push(p.x, p.y, p.z);
+    if (slopeTile) uvs.push((p.x * ax.x + p.y * ax.y + p.z * ax.z) / slopeTile[0], (p.x * dn.x + p.y * dn.y + p.z * dn.z) / slopeTile[1]);
+  };
   for (const f of faces) {
     const p = f.pts;
+    if (slopeTile && p.length >= 3) {
+      const a = new THREE.Vector3(p[0].x, p[0].y, p[0].z);
+      const n = new THREE.Vector3().subVectors(new THREE.Vector3(p[1].x, p[1].y, p[1].z), a).cross(new THREE.Vector3().subVectors(new THREE.Vector3(p[2].x, p[2].y, p[2].z), a));
+      if (n.y < 0) n.negate();
+      n.normalize();
+      dn = new THREE.Vector3(0, -1, 0).addScaledVector(n, n.y); // downhill, in the face
+      if (dn.lengthSq() < 1e-6) dn.set(0, 0, 1); // flat roof
+      dn.normalize();
+      ax = new THREE.Vector3().crossVectors(n, dn).normalize();
+    }
     if (f.mat === 'infill') {
       for (let i = 0; i + 3 < p.length; i += 2) {
         push(p[i]);
@@ -2276,6 +2343,7 @@ function facesToGeometry(faces: RoofFace[], uvTile?: [number, number]): THREE.Bu
   if (!pos.length) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  if (slopeTile) geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   if (uvTile) {
     // Vertical wall infill: run the pattern along the wall and up from the ground.
     const uv: number[] = [];
@@ -2342,4 +2410,386 @@ function wallBox(
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   g.add(mesh);
+}
+
+// ---------- Roofing textures and gutters ----------
+const roofTextures = new Map<string, { tex: THREE.Texture; tile: [number, number] }>();
+/** Greyscale pattern for a roofing profile (tinted by the roof colour); x across the slope, y down it. */
+function roofTexture(profile: string): { tex: THREE.Texture; tile: [number, number] } {
+  const hit = roofTextures.get(profile);
+  if (hit) return hit;
+  const tile: [number, number] =
+    profile === 'corrugated' ? [608, 608] : profile === 'trapezoidal' ? [760, 760] : profile === 'kliplok' ? [812, 812] : profile === 'wave_tile' ? [600, 690] : [660, 690];
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, size, size);
+  const px = size / tile[0]; // px per mm across
+  const py = size / tile[1]; // px per mm down
+  const ribs = (pitch: number, width: number) => {
+    for (let x = 0; x < tile[0]; x += pitch) {
+      const grad = g.createLinearGradient((x - width / 2) * px, 0, (x + width / 2) * px, 0);
+      grad.addColorStop(0, 'rgba(0,0,0,0.28)');
+      grad.addColorStop(0.45, 'rgba(255,255,255,0.35)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.22)');
+      g.fillStyle = grad;
+      g.fillRect((x - width / 2) * px, 0, width * px, size);
+    }
+  };
+  if (profile === 'corrugated') {
+    // Sine-shaded corrugations every 76 mm.
+    for (let x = 0; x < size; x++) {
+      const v = Math.sin(((x / px) / 76) * Math.PI * 2);
+      g.fillStyle = v > 0 ? `rgba(255,255,255,${0.22 * v})` : `rgba(0,0,0,${-0.2 * v})`;
+      g.fillRect(x, 0, 1, size);
+    }
+  } else if (profile === 'trapezoidal') ribs(190, 40);
+  else if (profile === 'kliplok') ribs(406, 50);
+  else {
+    // Tiles: courses with a shadow under each tile's lower edge; joints staggered course to course.
+    const course = 345;
+    const tw = profile === 'wave_tile' ? 300 : 330;
+    for (let y = 0, row = 0; y < tile[1]; y += course, row++) {
+      const top = y * py;
+      const grad = g.createLinearGradient(0, top, 0, top + course * py);
+      grad.addColorStop(0, 'rgba(255,255,255,0.12)');
+      grad.addColorStop(0.85, 'rgba(0,0,0,0.05)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.38)');
+      g.fillStyle = grad;
+      g.fillRect(0, top, size, course * py);
+      if (profile === 'wave_tile')
+        for (let x = 0; x < size; x++) {
+          const v = Math.sin(((x / px) / tw) * Math.PI * 2);
+          g.fillStyle = v > 0 ? `rgba(255,255,255,${0.16 * v})` : `rgba(0,0,0,${-0.22 * v})`;
+          g.fillRect(x, top, 1, course * py);
+        }
+      else {
+        g.fillStyle = 'rgba(0,0,0,0.25)';
+        for (let x = (row % 2) * (tw / 2); x < tile[0]; x += tw) g.fillRect(x * px, top, 2, course * py);
+      }
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  const out = { tex, tile };
+  roofTextures.set(profile, out);
+  return out;
+}
+
+/** Gutter cross-sections: x out from the fascia, y up (mm). */
+function gutterShape(style: string): THREE.Shape {
+  const s = new THREE.Shape();
+  switch (style) {
+    case 'half_round':
+      s.moveTo(0, 62);
+      s.absarc(62, 62, 62, Math.PI, 0, false);
+      s.lineTo(0, 62);
+      break;
+    case 'square_line':
+      s.moveTo(0, 0);
+      s.lineTo(110, 0);
+      s.lineTo(110, 100);
+      s.lineTo(120, 105);
+      s.lineTo(0, 110);
+      break;
+    case 'fascia':
+      s.moveTo(0, 0);
+      s.lineTo(135, 0);
+      s.lineTo(140, 190);
+      s.lineTo(150, 196);
+      s.lineTo(0, 196);
+      break;
+    case 'ogee':
+      s.moveTo(0, 0);
+      s.lineTo(70, 0);
+      s.bezierCurveTo(130, 0, 85, 80, 125, 110);
+      s.lineTo(125, 118);
+      s.lineTo(0, 118);
+      break;
+    default:
+      // Quad: flat back, curved quarter-round front with a rolled bead.
+      s.moveTo(0, 0);
+      s.lineTo(55, 0);
+      s.quadraticCurveTo(115, 0, 115, 60);
+      s.lineTo(115, 112);
+      s.lineTo(124, 116);
+      s.lineTo(0, 116);
+  }
+  return s;
+}
+
+interface EaveEdge {
+  a: { x: number; y: number };
+  b: { x: number; y: number };
+  /** Along the edge (a → b) and out from the roof, in plan. */
+  ux: number;
+  uz: number;
+  ox: number;
+  oz: number;
+  len: number;
+  /** Roof top height along the edge. */
+  h: number;
+  /** Mitre at each end (tan of half the turn; + outside corner, − inside corner, 0 = square end). */
+  k0: number;
+  k1: number;
+}
+
+type P2 = { x: number; y: number };
+/**
+ * The outline of a union of polygons (the roof is built from overlapping pieces, one per wing): every edge is split
+ * where other outlines cross it, the parts that lie inside another piece are dropped, and the rest are chained into
+ * loops, all anticlockwise.
+ */
+function unionOutline(polys: P2[][]): P2[][] {
+  const area = (p: P2[]) => p.reduce((a, q, i) => a + q.x * p[(i + 1) % p.length].y - p[(i + 1) % p.length].x * q.y, 0) / 2;
+  const ccw = polys.filter((p) => p.length >= 3).map((p) => (area(p) > 0 ? p : [...p].reverse()));
+  const inside = (q: P2, poly: P2[]) => {
+    let r = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++)
+      if (poly[i].y > q.y !== poly[j].y > q.y && q.x < ((poly[j].x - poly[i].x) * (q.y - poly[i].y)) / (poly[j].y - poly[i].y) + poly[i].x) r = !r;
+    return r;
+  };
+  const segs: { a: P2; b: P2 }[] = [];
+  ccw.forEach((poly, pi) => {
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % poly.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      if (len2 < 1) continue;
+      // Where other outlines cross or touch this edge.
+      const ts = [0, 1];
+      ccw.forEach((other, oi) => {
+        if (oi === pi) return;
+        for (let j = 0; j < other.length; j++) {
+          const c = other[j];
+          const e = other[(j + 1) % other.length];
+          const ex = e.x - c.x;
+          const ey = e.y - c.y;
+          const den = dx * ey - dy * ex;
+          if (Math.abs(den) > 1e-9) {
+            const t = ((c.x - a.x) * ey - (c.y - a.y) * ex) / den;
+            const u = ((c.x - a.x) * dy - (c.y - a.y) * dx) / den;
+            if (t > 1e-6 && t < 1 - 1e-6 && u >= -1e-6 && u <= 1 + 1e-6) ts.push(t);
+          }
+          // Corners of the other outline lying on this edge (overlapping, collinear edges).
+          const t2 = ((c.x - a.x) * dx + (c.y - a.y) * dy) / len2;
+          const off = Math.abs((c.x - a.x) * dy - (c.y - a.y) * dx) / Math.sqrt(len2);
+          if (t2 > 1e-6 && t2 < 1 - 1e-6 && off < 0.5) ts.push(t2);
+        }
+      });
+      ts.sort((x, y) => x - y);
+      const L = Math.sqrt(len2);
+      const ox = dy / L; // outward (right of travel for an anticlockwise loop in this plan's axes)
+      const oy = -dx / L;
+      for (let k = 0; k + 1 < ts.length; k++) {
+        if (ts[k + 1] - ts[k] < 1e-6) continue;
+        const tm = (ts[k] + ts[k + 1]) / 2;
+        const m = { x: a.x + dx * tm, y: a.y + dy * tm };
+        const out = { x: m.x + ox * 5, y: m.y + oy * 5 };
+        const inn = { x: m.x - ox * 5, y: m.y - oy * 5 };
+        // On the outside of the union: just outside is in no piece, just inside is in this one.
+        if (ccw.some((q) => inside(out, q))) continue;
+        if (!inside(inn, poly)) continue;
+        const sa = { x: a.x + dx * ts[k], y: a.y + dy * ts[k] };
+        const sb = { x: a.x + dx * ts[k + 1], y: a.y + dy * ts[k + 1] };
+        // Two pieces sharing an outside line give the same part twice.
+        if (segs.some((sg) => Math.hypot(sg.a.x - sa.x, sg.a.y - sa.y) < 1 && Math.hypot(sg.b.x - sb.x, sg.b.y - sb.y) < 1)) continue;
+        segs.push({ a: sa, b: sb });
+      }
+    }
+  });
+  // Chain the parts into loops, then merge straight runs.
+  const key = (q: P2) => `${Math.round(q.x)},${Math.round(q.y)}`;
+  const byStart = new Map<string, number[]>();
+  segs.forEach((sg, i) => byStart.set(key(sg.a), [...(byStart.get(key(sg.a)) ?? []), i]));
+  const used = new Set<number>();
+  const loops: P2[][] = [];
+  for (let i = 0; i < segs.length; i++) {
+    if (used.has(i)) continue;
+    const loop: P2[] = [];
+    let cur = i;
+    while (cur !== undefined && !used.has(cur)) {
+      used.add(cur);
+      loop.push(segs[cur].a);
+      const next = (byStart.get(key(segs[cur].b)) ?? []).find((n) => !used.has(n));
+      if (next === undefined) break;
+      cur = next;
+    }
+    // Drop points in the middle of straight runs.
+    const clean = loop.filter((q, j) => {
+      const pr = loop[(j - 1 + loop.length) % loop.length];
+      const nx = loop[(j + 1) % loop.length];
+      return Math.abs((q.x - pr.x) * (nx.y - q.y) - (q.y - pr.y) * (nx.x - q.x)) > 1;
+    });
+    if (clean.length >= 3) loops.push(clean);
+  }
+  return loops;
+}
+
+/**
+ * The level, low edges of the roof (eaves, not gable rakes or the high side of a skillion), with the mitre at each
+ * end where an eave turns a corner into the next one.
+ */
+function eaveEdges(r: { eaves: { x: number; y: number }[][] }, faces: RoofFace[]): EaveEdge[][] {
+  const heightAt = (x: number, z: number) => roofAt(faces, x, z)?.y ?? null;
+  let lowest = Infinity;
+  for (const poly of r.eaves)
+    for (const p of poly) {
+      const h = heightAt(p.x, p.y);
+      if (h !== null) lowest = Math.min(lowest, h);
+    }
+  return unionOutline(r.eaves).map((poly) => {
+    const n = poly.length;
+    const area = poly.reduce((acc, p, i) => acc + p.x * poly[(i + 1) % n].y - poly[(i + 1) % n].x * p.y, 0);
+    const sign = area > 0 ? 1 : -1;
+    const edges: (EaveEdge | null)[] = poly.map((a, i) => {
+      const b = poly[(i + 1) % n];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 150) return null;
+      const ux = (b.x - a.x) / len;
+      const uz = (b.y - a.y) / len;
+      const ox = sign * uz;
+      const oz = -sign * ux;
+      const at = (t: number) => heightAt(a.x + (b.x - a.x) * t - ox * 30, a.y + (b.y - a.y) * t - oz * 30);
+      const h0 = at(0.05);
+      const h1 = at(0.5);
+      const h2 = at(0.95);
+      const eave = h0 !== null && h1 !== null && h2 !== null && Math.abs(h0 - h2) < 15 && Math.abs(h0 - h1) < 15 && h1 < lowest + 60;
+      return eave ? { a, b, ux, uz, ox, oz, len, h: h1!, k0: 0, k1: 0 } : null;
+    });
+    // Mitres between consecutive eave edges.
+    for (let i = 0; i < n; i++) {
+      const e = edges[i];
+      const next = edges[(i + 1) % n];
+      if (!e || !next) continue;
+      const turn = Math.atan2(e.ux * next.uz - e.uz * next.ux, e.ux * next.ux + e.uz * next.uz); // signed
+      // Turning away from the outward side = an outside corner.
+      const outside = (e.ox * next.ux + e.oz * next.uz) < 0;
+      const k = Math.tan(Math.abs(turn) / 2) * (outside ? 1 : -1);
+      e.k1 = k;
+      next.k0 = k;
+    }
+    return edges.filter((e): e is EaveEdge => !!e);
+  });
+}
+
+/** A gutter cross-section extruded along an eave edge, with its ends mitred (x = out from the fascia). */
+function mitredRun(shape: THREE.Shape, e: EaveEdge, y: number, mat: THREE.Material): THREE.Mesh {
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: e.len, bevelEnabled: false, curveSegments: 8 });
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    if (z < 0.01) pos.setZ(i, z - x * e.k0);
+    else if (z > e.len - 0.01) pos.setZ(i, z + x * e.k1);
+  }
+  geo.applyMatrix4(
+    new THREE.Matrix4()
+      .makeBasis(new THREE.Vector3(e.ox, 0, e.oz), new THREE.Vector3(0, 1, 0), new THREE.Vector3(e.ux, 0, e.uz))
+      .setPosition(e.a.x, y, e.a.y),
+  );
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  return mesh;
+}
+
+/**
+ * Everything along the eaves: the eave lining (Villaboard soffit) from the fascia back to the wall, gutters on the
+ * fascia just under the roof edge with mitred corners, and downpipes at outside corners and the ends of runs.
+ */
+function buildEaves(d: Design, r: { eaves: { x: number; y: number }[][] }, faces: RoofFace[] | null): THREE.Group {
+  const g = new THREE.Group();
+  const roof = d.roof!;
+  if (!faces?.length) return g;
+  const loops = eaveEdges(r, faces);
+  const fasciaDepth = Math.max(20, roof.fascia);
+  // Eave lining: a level sheet under each eave, its width the overhang, mitred where eaves meet.
+  const soffit = roof.soffit ?? { show: true, color: '#f4f4f0' };
+  if (soffit.show !== false && roof.overhang > 40) {
+    const ov = roof.overhang;
+    const pos: number[] = [];
+    for (const loop of loops)
+      for (const e of loop) {
+        // Just under the bottom of the fascia (the roof edge is a little below where e.h was measured).
+        const k = Math.tan(THREE.MathUtils.degToRad(roof.pitch));
+        const y = e.h - 30 * k - fasciaDepth - 15;
+        const ix = -e.ox * ov;
+        const iz = -e.oz * ov;
+        const p1 = [e.a.x, y, e.a.y];
+        const p2 = [e.b.x, y, e.b.y];
+        const p3 = [e.b.x + ix - e.ux * ov * e.k1, y, e.b.y + iz - e.uz * ov * e.k1];
+        const p4 = [e.a.x + ix + e.ux * ov * e.k0, y, e.a.y + iz + e.uz * ov * e.k0];
+        pos.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4);
+      }
+    if (pos.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.computeVertexNormals();
+      // Lit mostly by light bouncing up off the ground and walls: a little self-light keeps it reading as a
+      // light lining rather than a black slot.
+      const m = new THREE.MeshStandardMaterial({ color: soffit.color, roughness: 0.9, side: THREE.DoubleSide });
+      m.emissive = new THREE.Color(soffit.color);
+      m.emissiveIntensity = 0.32;
+      const mesh = new THREE.Mesh(geo, m);
+      g.add(mesh);
+    }
+  }
+  const gut = roof.gutter;
+  // COLORBOND® fascia board on the eave edges (matching the gutters, or the roof with no gutters).
+  {
+    const k = Math.tan(THREE.MathUtils.degToRad(roof.pitch));
+    const fasciaMat = new THREE.MeshStandardMaterial({ color: roof.fasciaColor ?? (gut && gut.style !== 'none' ? gut.color : roof.color), roughness: 0.5, metalness: 0.2 });
+    const board = new THREE.Shape();
+    board.moveTo(0, 0);
+    board.lineTo(6, 0);
+    board.lineTo(6, fasciaDepth + 4);
+    board.lineTo(0, fasciaDepth + 4);
+    for (const loop of loops)
+      for (const e of loop) {
+        const top = e.h - 30 * k;
+        const m = mitredRun(board, e, top - fasciaDepth - 2, fasciaMat);
+        m.position.add(new THREE.Vector3(e.ox, 0, e.oz).multiplyScalar(1));
+        g.add(m);
+      }
+  }
+  if (!gut || gut.style === 'none') return g;
+  const mat = new THREE.MeshStandardMaterial({ color: gut.color, roughness: 0.45, metalness: 0.25, side: THREE.DoubleSide });
+  const shape = gutterShape(gut.style);
+  const depth = gut.style === 'fascia' ? 196 : gut.style === 'half_round' ? 62 : 116; // height of the section
+  for (const loop of loops) {
+    for (const e of loop) g.add(mitredRun(shape, e, e.h - 20 - depth, mat));
+    if (!gut.downpipes) continue;
+    // Downpipes: at outside corners between two runs, and at the ends of runs (e.g. where a gutter meets a gable end).
+    // Each drops from under the gutter, back under the eaves to the wall, then down to the ground.
+    const pipe = (px: number, pz: number, ux: number, uz: number, ox: number, oz: number, h: number) => {
+      const gy = h - 20 - depth;
+      const outlet = new THREE.Vector3(px + ux * 300 + ox * 60, gy, pz + uz * 300 + oz * 60);
+      const back = Math.max(80, roof.overhang - 40);
+      const wallPt = new THREE.Vector3(outlet.x - ox * (back + 60), gy - 260, outlet.z - oz * (back + 60));
+      const seg = (from: THREE.Vector3, to: THREE.Vector3) => {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(45, 45, from.distanceTo(to), 14), mat);
+        m.position.copy(from).add(to).multiplyScalar(0.5);
+        m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3().subVectors(to, from).normalize());
+        m.castShadow = true;
+        g.add(m);
+      };
+      seg(outlet, new THREE.Vector3(outlet.x, gy - 120, outlet.z));
+      seg(new THREE.Vector3(outlet.x, gy - 120, outlet.z), wallPt);
+      seg(wallPt, new THREE.Vector3(wallPt.x, 0, wallPt.z));
+    };
+    for (const e of loop) {
+      // Start of this run: a pipe if nothing joins here, or at an outside corner (counted once, at the run's start).
+      if (e.k0 === 0 || e.k0 > 0) pipe(e.a.x, e.a.y, e.ux, e.uz, e.ox, e.oz, e.h);
+      // End of a run that doesn't continue round a corner.
+      if (e.k1 === 0) pipe(e.b.x, e.b.y, -e.ux, -e.uz, e.ox, e.oz, e.h);
+    }
+  }
+  return g;
 }

@@ -14,6 +14,8 @@ const RADIUS = 220; // body radius
 const STEP = 450; // highest step you can walk up
 const PASSABLE = new Set(['door', 'double_door', 'sliding_door', 'stacker_door', 'cavity_door', 'garage_door', 'opening']);
 /** Outdoor structures you walk on/under rather than bump into. */
+/** Small wall / bench fittings you'd brush past rather than walk into. */
+const SMALL_FITTINGS = new Set(['solar_array', 'skylight', 'sun_tunnel', 'abi_tap', 'abi_accessory', 'abi_shower', 'abi_mirror', 'abi_towel_rail', 'abi_bath_filler']);
 const WALK_ON = new Set(['deck', 'patio', 'veranda', 'porch', 'pergola', 'rug', 'stairs']);
 
 export interface Box {
@@ -73,7 +75,7 @@ export function walkWorld(d: Design): WalkWorld {
       continue;
     }
     // Furniture you'd bump into: anything at body height (not wall cabinets above your head).
-    if (it.height < 250 || it.elevation > 1500) continue;
+    if (it.height < 250 || it.elevation > 1500 || SMALL_FITTINGS.has(it.type)) continue;
     const r = rad(it.rotation);
     boxes.push({ c: v(it.x, it.y), u: v(Math.cos(r), Math.sin(r)), hl: it.width / 2, hw: it.depth / 2 });
   }

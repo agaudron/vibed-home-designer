@@ -9,6 +9,14 @@ export interface ItemDef {
   height: number;
   elevation?: number;
   color: string;
+  /** The real product this is modelled on. */
+  link?: ProductLink;
+}
+
+export interface ProductLink {
+  url: string;
+  /** Who sells / makes it, shown with the link. */
+  label: string;
 }
 
 export interface OpeningDef {
@@ -51,6 +59,9 @@ const WOOD = '#b98a5e';
 const WHITE = '#f3f1ec';
 const STEEL = '#c4c8cc';
 const FABRIC = '#7d8a96';
+
+const ABI_HOME: ProductLink = { url: 'https://www.abiinteriors.com.au/', label: 'ABI Interiors' };
+const PANASONIC_Z80: ProductLink = { url: 'https://www.panasonic.com/au/hvac/products/air-conditioner/rac/z-akr/cu-cs-z80ykr.html', label: 'Panasonic' };
 
 export const ITEMS: ItemDef[] = [
   // Kitchen
@@ -103,10 +114,10 @@ export const ITEMS: ItemDef[] = [
   { type: 'banquette_l', name: 'Banquette seat (L corner)', category: 'Dining', width: 2000, depth: 1600, height: 900, color: '#ece8df' },
   // Harvey Norman "Lombardozzi" buffet, solid Tasmanian oak, 4 doors + 3 drawers; sold 1100 / 1580 / 2070 wide.
   // Depth and height weren't published where we could read them: 450 × 800 are typical for a buffet.
-  { type: 'buffet_lombardozzi', name: 'Buffet (Lombardozzi, Tas oak)', category: 'Dining', width: 2070, depth: 450, height: 800, color: '#d8b385' },
+  { type: 'buffet_lombardozzi', name: 'Buffet (Lombardozzi, Tas oak)', category: 'Dining', width: 2070, depth: 450, height: 800, color: '#d8b385', link: { url: 'https://www.harveynorman.com.au/lombardozzi-buffet-tasmanian-oak.html', label: 'Harvey Norman' } },
   { type: 'sideboard', name: 'Sideboard', category: 'Dining', width: 1800, depth: 450, height: 800, color: WOOD },
   // Provincial Home Living "Rochester": 12-drawer buffet with a glazed hutch, natural oak (231 × 51 × 220 cm).
-  { type: 'buffet_hutch', name: 'Buffet & hutch (Rochester)', category: 'Dining', width: 2310, depth: 510, height: 2200, color: '#c48d58' },
+  { type: 'buffet_hutch', name: 'Buffet & hutch (Rochester)', category: 'Dining', width: 2310, depth: 510, height: 2200, color: '#c48d58', link: { url: 'https://www.provincialhomeliving.com.au/rochester-buffet-hutch-1117259923', label: 'Provincial Home Living' } },
 
   // Bathroom
   { type: 'toilet', name: 'Toilet', category: 'Bathroom', width: 400, depth: 700, height: 800, color: '#ffffff' },
@@ -126,18 +137,34 @@ export const ITEMS: ItemDef[] = [
   // Skylights (VELUX): sit in the ceiling, with a light shaft up to the unit on the roof. Overall frame sizes from
   // VELUX Australia's size codes; see SKYLIGHT_SIZES.
   { type: 'skylight', name: 'VELUX skylight', category: 'Skylights', width: 780, depth: 1180, height: 200, color: '#4a4d50' },
-  { type: 'sun_tunnel', name: 'VELUX Sun Tunnel', category: 'Skylights', width: 350, depth: 350, height: 200, color: '#f4f4f2' },
+  { type: 'sun_tunnel', name: 'VELUX Sun Tunnel', category: 'Skylights', width: 350, depth: 350, height: 200, color: '#f4f4f2', link: { url: 'https://www.velux.com.au/products/sun-tunnels', label: 'VELUX' } },
 
   // Garage storage: boltless steel shelving after Bunnings' Pinnacle 4-tier heavy duty unit (1830 H × 1820 W ×
   // 540 D, matte black frame, about 600 kg per shelf). Tiers are adjustable (2–6) in the panel.
-  { type: 'shelving_rack', name: 'Heavy duty shelving (4 tier)', category: 'Garage', width: 1820, depth: 540, height: 1830, color: '#26282b' },
-  { type: 'shelving_rack_tall', name: 'Heavy duty shelving (5 tier, tall)', category: 'Garage', width: 1820, depth: 540, height: 2090, color: '#26282b' },
+  { type: 'shelving_rack', name: 'Heavy duty shelving (4 tier)', category: 'Garage', width: 1820, depth: 540, height: 1830, color: '#26282b', link: { url: 'https://www.bunnings.com.au/pinnacle-1830-x-1820-x-540mm-4-tier-heavy-duty-shelving-unit_p2582967', label: 'Bunnings' } },
+  { type: 'shelving_rack_tall', name: 'Heavy duty shelving (5 tier, tall)', category: 'Garage', width: 1820, depth: 540, height: 2090, color: '#26282b', link: { url: 'https://www.bunnings.co.nz/pinnacle-2090-x-1820-x-540mm-5-tier-heavy-duty-adjustable-shelving-unit_p0853494', label: 'Bunnings NZ' } },
   { type: 'shelving_rack_narrow', name: 'Shelving, narrow (4 tier)', category: 'Garage', width: 900, depth: 450, height: 1830, color: '#26282b' },
+
+  // ABI Interiors: one entry per kind of fixture; pick the actual ABI product (size, finish, price) in the panel.
+  { type: 'abi_vanity', name: 'ABI vanity', category: 'ABI Interiors', width: 1164, depth: 450, height: 500, elevation: 350, color: '#c49a6c', link: ABI_HOME },
+  { type: 'abi_basin', name: 'ABI basin', category: 'ABI Interiors', width: 500, depth: 400, height: 150, elevation: 850, color: '#f7f7f5', link: ABI_HOME },
+  { type: 'abi_bath', name: 'ABI bath', category: 'ABI Interiors', width: 1700, depth: 750, height: 560, color: '#f7f7f5', link: ABI_HOME },
+  { type: 'abi_toilet', name: 'ABI toilet', category: 'ABI Interiors', width: 380, depth: 680, height: 800, color: '#f7f7f5', link: ABI_HOME },
+  { type: 'abi_sink', name: 'ABI kitchen / laundry sink', category: 'ABI Interiors', width: 800, depth: 500, height: 220, elevation: 680, color: '#b5b8bb', link: ABI_HOME },
+  { type: 'abi_mirror', name: 'ABI mirror', category: 'ABI Interiors', width: 600, depth: 40, height: 900, elevation: 1100, color: '#b8955a', link: ABI_HOME },
+  { type: 'abi_towel_rail', name: 'ABI towel rail', category: 'ABI Interiors', width: 600, depth: 100, height: 120, elevation: 1000, color: '#b8955a', link: ABI_HOME },
+  { type: 'abi_shower', name: 'ABI shower', category: 'ABI Interiors', width: 250, depth: 300, height: 1000, elevation: 1100, color: '#b8955a', link: ABI_HOME },
+  { type: 'abi_bath_filler', name: 'ABI bath filler', category: 'ABI Interiors', width: 250, depth: 250, height: 1000, color: '#b8955a', link: ABI_HOME },
+  { type: 'abi_tap', name: 'ABI tap / mixer', category: 'ABI Interiors', width: 60, depth: 200, height: 250, elevation: 880, color: '#b8955a', link: ABI_HOME },
+  { type: 'abi_accessory', name: 'ABI accessory', category: 'ABI Interiors', width: 150, depth: 100, height: 100, elevation: 1100, color: '#b8955a', link: ABI_HOME },
+
+  // Solar: an array of panels that lies on the roof slope under it (2 × 5 Jinko Tiger Neo 440 W to start).
+  { type: 'solar_array', name: 'Solar panels', category: 'Solar', width: 5750, depth: 3544, height: 40, color: '#111214' },
 
   // Heating & cooling: split system air conditioner, sized from Panasonic's 8.0 kW Z series (CS/CU-Z80YKR):
   // indoor 1040 W × 244 D × 295 H, outdoor 875 W × 320 D × 795 H. Resize for other capacities.
-  { type: 'ac_indoor', name: 'Split system AC (indoor, 8 kW)', category: 'Heating & cooling', width: 1040, depth: 244, height: 295, elevation: 2200, color: '#f6f6f3' },
-  { type: 'ac_outdoor', name: 'Split system AC (outdoor, 8 kW)', category: 'Heating & cooling', width: 875, depth: 320, height: 795, color: '#e8e8e4' },
+  { type: 'ac_indoor', name: 'Split system AC (indoor, 8 kW)', category: 'Heating & cooling', width: 1040, depth: 244, height: 295, elevation: 2200, color: '#f6f6f3', link: PANASONIC_Z80 },
+  { type: 'ac_outdoor', name: 'Split system AC (outdoor, 8 kW)', category: 'Heating & cooling', width: 875, depth: 320, height: 795, color: '#e8e8e4', link: PANASONIC_Z80 },
 
   // Office
   { type: 'desk', name: 'Desk', category: 'Office', width: 1500, depth: 700, height: 750, color: WOOD },
@@ -625,3 +652,148 @@ export const DRESSING_FABRICS: { hex: string; name: string }[] = [
   { hex: '#2f3f56', name: 'Navy' },
   { hex: '#b8865b', name: 'Timber look' },
 ];
+
+/** Timberline's page for a vanity range (their address for most ranges is the name; Colby's differs). */
+function timberlineUrl(range: string) {
+  const slug = range === 'Colby' ? 'colby-vanity' : range.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  return `https://timberline.com.au/products/vanities/${slug}/`;
+}
+const VELUX_SKYLIGHT_PAGES: Record<string, string> = {
+  FS: 'pitched-roof-fixed-skylight',
+  VS: 'pitched-roof-manual-skylight',
+  VSE: 'pitched-roof-electrical-skylight',
+  VSS: 'pitched-roof-solar-skylight',
+};
+
+/** The real product an item is modelled on, if any (following its chosen range / model where that matters). */
+export function productLink(it: { type: string; options?: Record<string, string | number> }): ProductLink | null {
+  if (it.type === 'vanity_tl') {
+    const range = String(it.options?.range ?? VANITY_DEFAULTS.range);
+    return { url: timberlineUrl(range), label: `Timberline — ${range}` };
+  }
+  if (it.type === 'skylight') {
+    const model = String(it.options?.model ?? SKYLIGHT_DEFAULTS.model);
+    return { url: `https://www.velux.com.au/products/pitched-roof-skylights/${VELUX_SKYLIGHT_PAGES[model] ?? ''}`, label: `VELUX ${model}` };
+  }
+  if (it.type === 'solar_array') {
+    const p = SOLAR_PANELS[String(it.options?.panel ?? SOLAR_DEFAULTS.panel)];
+    return p ? { url: p.url, label: p.brand } : null;
+  }
+  if (it.type.startsWith('abi_') && it.options?.slug)
+    return { url: `https://www.abiinteriors.com.au/product/${it.options.slug}/`, label: 'ABI Interiors' };
+  return ITEM_MAP[it.type]?.link ?? null;
+}
+
+/** Roofing materials, their profiles and (for tiles) colours. COLORBOND® steel uses the COLORBOND palette. */
+export const ROOF_MATERIALS: Record<string, { name: string; profiles: string[] }> = {
+  colorbond: { name: 'COLORBOND® steel', profiles: ['corrugated', 'trapezoidal', 'kliplok'] },
+  concrete_tile: { name: 'Concrete tiles', profiles: ['flat_tile', 'wave_tile'] },
+  terracotta_tile: { name: 'Terracotta tiles', profiles: ['flat_tile', 'wave_tile'] },
+};
+export const ROOF_PROFILES: Record<string, string> = {
+  corrugated: 'Corrugated',
+  trapezoidal: 'Trapezoidal rib (Trimdek®-style)',
+  kliplok: 'Concealed-fix wide rib (Klip-Lok®-style)',
+  flat_tile: 'Flat profile',
+  wave_tile: 'Wave profile (Marseille / Roman)',
+};
+export const TILE_COLOURS: { hex: string; name: string }[] = [
+  { hex: '#3a3c3e', name: 'Charcoal' },
+  { hex: '#232425', name: 'Black / Eclipse' },
+  { hex: '#62686c', name: 'Slate grey' },
+  { hex: '#8a8d8f', name: 'Granite' },
+  { hex: '#a2958a', name: 'Mushroom' },
+  { hex: '#8f857a', name: 'Shale' },
+  { hex: '#c9b28f', name: 'Sandstone' },
+  { hex: '#e2ded6', name: 'White / Ice' },
+  { hex: '#7a3b2a', name: 'Red brown' },
+  { hex: '#b5583a', name: 'Terracotta red' },
+  { hex: '#c9774a', name: 'Natural terracotta' },
+  { hex: '#4c3a33', name: 'Chocolate' },
+];
+/** COLORBOND® gutter styles (cross-sections drawn in 3D). */
+export const GUTTER_STYLES: Record<string, string> = {
+  quad: 'Quad',
+  half_round: 'Half Round',
+  square_line: 'Square Line',
+  fascia: 'Fascia / Hi-front',
+  ogee: 'Ogee (OG)',
+};
+
+/** Solar panels (from each maker's datasheet): size is long side × short side × thickness in mm. */
+export interface SolarPanel {
+  brand: string;
+  model: string;
+  code: string;
+  watts: number;
+  long: number;
+  short: number;
+  thick: number;
+  kg: number;
+  efficiency: number;
+  /** Frame and cell colours for the 3D model. */
+  frame: string;
+  cells: string;
+  url: string;
+  brandUrl: string;
+}
+export const SOLAR_PANELS: Record<string, SolarPanel> = {
+  jinko_tiger_neo_440: {
+    brand: 'Jinko Solar',
+    model: 'Tiger Neo 440 W (all black)',
+    code: 'JKM440N-54HL4R-B',
+    watts: 440,
+    long: 1762,
+    short: 1134,
+    thick: 30,
+    kg: 21,
+    efficiency: 22.02,
+    frame: '#111214',
+    cells: '#15171c',
+    url: 'https://www.jinkosolar.com/en/site/tigerneo',
+    brandUrl: 'https://jinkosolar.com.au/',
+  },
+  trina_vertex_s_plus_445: {
+    brand: 'Trina Solar',
+    model: 'Vertex S+ 445 W (black frame)',
+    code: 'TSM-445NEG9R.28',
+    watts: 445,
+    long: 1762,
+    short: 1134,
+    thick: 30,
+    kg: 21,
+    efficiency: 22.3,
+    frame: '#151617',
+    cells: '#1a2333',
+    url: 'https://www.trinasolar.com/au/',
+    brandUrl: 'https://www.trinasolar.com/au/',
+  },
+  sunpower_maxeon_7_445: {
+    brand: 'SunPower',
+    model: 'Maxeon 7 445 W',
+    code: 'SPR-MAX7-445',
+    watts: 445,
+    long: 1787,
+    short: 1035,
+    thick: 40,
+    kg: 20.7,
+    efficiency: 24.1,
+    frame: '#121314',
+    cells: '#101318',
+    url: 'https://www.sunpowerglobal.com/au',
+    brandUrl: 'https://www.sunpowerglobal.com/au',
+  },
+};
+export const SOLAR_DEFAULTS = { panel: 'jinko_tiger_neo_440', rows: 2, cols: 5, orient: 'portrait' } as Record<string, string | number>;
+/** Gap between panels on the rails (mm). */
+export const SOLAR_GAP = 20;
+/** Plan size of an array: [across, up the roof] in mm. */
+export function solarArraySize(o: Record<string, string | number>): [number, number] {
+  const p = SOLAR_PANELS[String(o.panel)] ?? SOLAR_PANELS.jinko_tiger_neo_440;
+  const portrait = o.orient !== 'landscape';
+  const pw = portrait ? p.short : p.long;
+  const pl = portrait ? p.long : p.short;
+  const cols = Number(o.cols) || 1;
+  const rows = Number(o.rows) || 1;
+  return [cols * pw + (cols - 1) * SOLAR_GAP, rows * pl + (rows - 1) * SOLAR_GAP];
+}

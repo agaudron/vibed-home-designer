@@ -676,7 +676,7 @@ export default function PlanView() {
     const mid = add(w.start, mul(f.u, f.length / 2));
     // Which sides of the wall have a room against them.
     const roomOn = (sd: number) => design.rooms.some((r) => pointInPolygon(add(mid, mul(f.n, sd * (ht + 150))), r.points));
-    const showRooms = design.settings.showRoomDimensions;
+    const showRooms = design.settings.showRoomDimensions && !!design.settings.showRoomSides;
     const interior = showRooms && roomOn(1) && roomOn(-1);
     if (design.settings.showDimensions && f.length * s > 40) {
       let pos: Vec;
@@ -938,7 +938,7 @@ export default function PlanView() {
 
   // Internal room measurements: clear length of each side between wall faces, drawn just inside the room.
   const roomDims: ReactNode[] = [];
-  if (design.settings.showRoomDimensions)
+  if (design.settings.showRoomDimensions && design.settings.showRoomSides)
     for (const r of design.rooms) {
       const ri = roomInterior(r.points, design.walls);
       if (!ri) continue;
@@ -1294,11 +1294,13 @@ export default function PlanView() {
           </g>
           <g className="dims">{design.dimensions.map((m) => dimLine(m.a, m.b, m.id, { id: m.id, selected: isSel('dimension', m.id) }))}</g>
           {selection?.kind === 'roof' && design.roof && <RoofOverlay design={design} fs={fs} />}
-          <g className="gaps">
-            {gapEls}
-            {openingGapEls}
-            {itemGapEls}
-          </g>
+          {design.settings.showClearances && (
+            <g className="gaps">
+              {gapEls}
+              {openingGapEls}
+              {itemGapEls}
+            </g>
+          )}
           <g className="handles">{handles}</g>
           <g className="preview">{preview}</g>
           {walker && <WalkerMarker x={walker.x} y={walker.y} yaw={walker.yaw} px={px} />}

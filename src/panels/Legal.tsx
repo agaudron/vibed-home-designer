@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
  * on first visit. Plain English on purpose.
  */
 
-export type LegalTab = 'terms' | 'privacy';
+export type LegalTab = 'terms' | 'privacy' | 'disclosure';
 const UPDATED = '15 October 2026';
 /** Bump when the terms change, so the first-visit notice shows again. */
 const VERSION = '2026-10-15';
@@ -61,8 +61,8 @@ export default function Legal() {
             designs stay in your browser.
           </p>
           <div className="legal-notice-actions">
-            <button onClick={() => setTab('terms')}>Terms of use</button>
-            <button onClick={() => setTab('privacy')}>Privacy</button>
+            <button onClick={() => setTab('terms')}>Terms of Service</button>
+            <button onClick={() => setTab('privacy')}>Privacy Policy</button>
             <button className="primary" onClick={accept}>
               I understand
             </button>
@@ -71,21 +71,24 @@ export default function Legal() {
       )}
       {tab && (
         <div className="legal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setTab(null)}>
-          <div className="legal-modal" role="dialog" aria-modal="true" aria-label={tab === 'terms' ? 'Terms of use' : 'Privacy policy'}>
+          <div className="legal-modal" role="dialog" aria-modal="true" aria-label={tab === 'terms' ? 'Terms of Service' : tab === 'privacy' ? 'Privacy Policy' : 'Brand Disclosure'}>
             <div className="legal-head">
               <div className="seg">
                 <button className={tab === 'terms' ? 'active' : ''} onClick={() => setTab('terms')}>
-                  Terms of use
+                  Terms of Service
                 </button>
                 <button className={tab === 'privacy' ? 'active' : ''} onClick={() => setTab('privacy')}>
-                  Privacy
+                  Privacy Policy
+                </button>
+                <button className={tab === 'disclosure' ? 'active' : ''} onClick={() => setTab('disclosure')}>
+                  Brand Disclosure
                 </button>
               </div>
               <button className="legal-close" onClick={() => setTab(null)} aria-label="Close">
                 ✕
               </button>
             </div>
-            <div className="legal-body">{tab === 'terms' ? <Terms /> : <Privacy />}</div>
+            <div className="legal-body">{tab === 'terms' ? <Terms /> : tab === 'privacy' ? <Privacy /> : <Disclosure />}</div>
             {notice && (
               <div className="legal-foot">
                 <button
@@ -109,7 +112,7 @@ export default function Legal() {
 function Terms() {
   return (
     <article>
-      <h2>Terms of use</h2>
+      <h2>Terms of Service</h2>
       <p className="legal-updated">Last updated {UPDATED}</p>
       <p className="legal-short">
         <b>The short version:</b> this is a sketching and visualisation tool for ideas. Don’t build, knock down, buy or sign anything
@@ -191,11 +194,11 @@ function Terms() {
 function Privacy() {
   return (
     <article>
-      <h2>Privacy policy</h2>
+      <h2>Privacy Policy</h2>
       <p className="legal-updated">Last updated {UPDATED}</p>
       <p className="legal-short">
         <b>The short version:</b> there are no accounts, no analytics and no tracking in Home Designer, and your designs never leave
-        your device. The only outside services involved are the website host and, if you play the walk-through music, YouTube.
+        your device. The only outside services involved are the website host, YouTube if you play the walk-through music, and brand websites for product photos when you open a product card.
       </p>
 
       <h3>What Home Designer doesn’t collect</h3>
@@ -231,6 +234,10 @@ function Privacy() {
           certain cheat code. Turn the music off in the walk-through panel and the player isn’t loaded.
         </li>
         <li>
+          <b>Product photos.</b> When a product card opens, its photo is loaded straight from the brand’s or retailer’s website
+          (for example ABI Interiors), which can see that request like any website visit. No referrer is sent with it.
+        </li>
+        <li>
           <b>Links</b> to paint makers and product pages (e.g. Dulux, Porter’s Paints) open their websites, which have their own privacy
           policies.
         </li>
@@ -244,6 +251,83 @@ function Privacy() {
 
       <h3>Changes</h3>
       <p>If this policy changes, the date above will be updated.</p>
+    </article>
+  );
+}
+
+/** Brands that appear in Home Designer, and what they're used for. */
+const BRANDS: { name: string; url: string; what: string }[] = [
+  { name: 'ABI Interiors', url: 'https://www.abiinteriors.com.au/', what: 'Bathroom, kitchen and laundry fixtures and tapware' },
+  { name: 'Bunnings (Pinnacle)', url: 'https://www.bunnings.com.au/', what: 'Garage shelving' },
+  { name: 'COLORBOND® steel (BlueScope)', url: 'https://colorbond.com/', what: 'Roof and garage door colours' },
+  { name: 'Corinthian Doors', url: 'https://www.corinthian.com.au/', what: 'Internal and entrance door designs' },
+  { name: 'Dulux', url: 'https://www.dulux.com.au/', what: 'Paint colours' },
+  { name: 'Front Porch Properties', url: 'https://frontporchproperties.com.au/', what: 'Entrance doors and sidelites' },
+  { name: 'Gyprock', url: 'https://www.gyprock.com.au/', what: 'Mentioned in the plasterboard calculator' },
+  { name: 'Harvey Norman', url: 'https://www.harveynorman.com.au/', what: 'Lombardozzi buffet' },
+  { name: 'Jinko Solar', url: 'https://jinkosolar.com.au/', what: 'Solar panels' },
+  { name: 'SunPower (Maxeon)', url: 'https://www.sunpowerglobal.com/au', what: 'Solar panels' },
+  { name: 'Trina Solar', url: 'https://www.trinasolar.com/au/', what: 'Solar panels' },
+  { name: 'Hume Doors', url: 'https://www.humedoors.com.au/', what: 'Entrance and internal door designs' },
+  { name: 'Panasonic', url: 'https://www.panasonic.com/au/', what: 'Split system air conditioner' },
+  { name: 'Porter’s Paints', url: 'https://www.porterspaints.com/', what: 'Paint colours' },
+  { name: 'Provincial Home Living', url: 'https://www.provincialhomeliving.com.au/', what: 'Rochester buffet & hutch' },
+  { name: 'Timberline', url: 'https://timberline.com.au/', what: 'Bathroom vanities' },
+  { name: 'VELUX', url: 'https://www.velux.com.au/', what: 'Skylights and Sun Tunnels' },
+];
+
+function Disclosure() {
+  return (
+    <article>
+      <h2>Brand Disclosure</h2>
+      <p className="legal-updated">Last updated {UPDATED}</p>
+      <p className="legal-short">
+        <b>The short version:</b> the brands in Home Designer are here because I like them and they make designs feel real. Nobody pays
+        for them to be here. There are no sponsorships, kickbacks, affiliate links or freebies.
+      </p>
+
+      <h3>No sponsorship or payment</h3>
+      <p>
+        Home Designer isn’t sponsored by, affiliated with, or endorsed by any of the brands below, and receives nothing from them: no
+        money, commissions, referral or affiliate fees, free or discounted products, or any other benefit. Product and website links
+        are plain links with no tracking or referral codes. Their inclusion isn’t a recommendation for your particular project, so
+        compare options and get professional advice.
+      </p>
+
+      <h3>Brands that appear</h3>
+      <table className="area-table">
+        <thead>
+          <tr>
+            <th>Brand</th>
+            <th>Used for</th>
+          </tr>
+        </thead>
+        <tbody>
+          {BRANDS.map((b) => (
+            <tr key={b.name}>
+              <td>
+                <a href={b.url} target="_blank" rel="noopener noreferrer">
+                  {b.name}
+                </a>
+              </td>
+              <td>{b.what}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h3>Product details and colours</h3>
+      <p>
+        Product names, sizes, colours and prices come from each brand’s public website at the time they were added, and may since have
+        changed. 3D models are approximations, and screen colours are approximate. Check with the brand or retailer before you buy.
+        All trademarks belong to their owners.
+      </p>
+
+      <h3>Music</h3>
+      <p>
+        The walk-through music (Sabrina Carpenter’s “House Tour”, and a Doom soundtrack video for a certain cheat code) is played from
+        YouTube with YouTube’s own player. There’s no affiliation with the artists, labels, id Software or YouTube.
+      </p>
     </article>
   );
 }
