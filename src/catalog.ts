@@ -1,4 +1,5 @@
 import { HUME_MODELS, humeKey } from './humeDoors';
+import { LG_FRIDGES, lgFridgeType } from './lgFridges';
 import type { DoorDesign, GarageStyle, OpeningKind } from './types';
 
 export interface ItemDef {
@@ -13,6 +14,9 @@ export interface ItemDef {
   /** The real product this is modelled on. */
   link?: ProductLink;
 }
+
+/** Category of items only placed from the kitchen designer (not listed in the main catalogue). */
+export const KITCHEN_DESIGNER = 'Kitchen designer';
 
 export interface ProductLink {
   url: string;
@@ -41,7 +45,7 @@ export const OPENINGS: OpeningDef[] = [
   { id: 'entrance_ivy', name: 'Ivy Willow front door', kind: 'door', width: 920, height: 2040, sill: 0, color: '#f4f4ef', design: 'fpp_ivy_willow' },
   { id: 'entrance_hav44', name: 'Hume HAV44 entrance door', kind: 'door', width: 820, height: 2040, sill: 0, color: '#f4f4ef', design: 'hume_hav44' },
   { id: 'entrance_hamptons', name: 'Entrance door (Hamptons)', kind: 'door', width: 920, height: 2040, sill: 0, color: '#f4f4ef', design: 'joinery' },
-  { id: 'double_door', name: 'Double door', kind: 'double_door', width: 1640, height: 2040, sill: 0, color: '#f4f1ea' },
+  { id: 'double_door', name: 'Double door', kind: 'double_door', width: 1713, height: 2040, sill: 0, color: '#f4f1ea' }, // two 820 doors
   { id: 'sliding_door', name: 'Sliding glass door', kind: 'sliding_door', width: 2400, height: 2100, sill: 0, color: '#3a3f45' },
   // 3 × 1000 mm panels: 3000 mm overall (see stackerWidth).
   { id: 'stacker_door', name: 'Stacker door', kind: 'stacker_door', width: 3000, height: 2100, sill: 0, color: '#3a3f45', panels: 3, panelWidth: 1000 },
@@ -146,7 +150,7 @@ export const ITEMS: ItemDef[] = [
   { type: 'shelving_rack_tall', name: 'Heavy duty shelving (5 tier, tall)', category: 'Garage', width: 1820, depth: 540, height: 2090, color: '#26282b', link: { url: 'https://www.bunnings.co.nz/pinnacle-2090-x-1820-x-540mm-5-tier-heavy-duty-adjustable-shelving-unit_p0853494', label: 'Bunnings NZ' } },
   { type: 'shelving_rack_narrow', name: 'Shelving, narrow (4 tier)', category: 'Garage', width: 900, depth: 450, height: 1830, color: '#26282b' },
 
-  // ABI Interiors: one entry per kind of fixture; pick the actual ABI product (size, finish, price) in the panel.
+  // ABI Interiors: one entry per kind of fixture; pick the actual ABI product (size, finish) in the panel.
   { type: 'abi_vanity', name: 'ABI vanity', category: 'ABI Interiors', width: 1164, depth: 450, height: 500, elevation: 350, color: '#c49a6c', link: ABI_HOME },
   { type: 'abi_basin', name: 'ABI basin', category: 'ABI Interiors', width: 500, depth: 400, height: 150, elevation: 850, color: '#f7f7f5', link: ABI_HOME },
   { type: 'abi_bath', name: 'ABI bath', category: 'ABI Interiors', width: 1700, depth: 750, height: 560, color: '#f7f7f5', link: ABI_HOME },
@@ -185,12 +189,25 @@ export const ITEMS: ItemDef[] = [
   { type: 'bench_seat', name: 'Built-in bench', category: 'Structure', width: 1500, depth: 450, height: 450, color: WOOD },
   { type: 'box', name: 'Custom block', category: 'Structure', width: 1000, depth: 600, height: 900, color: '#c9c3b8' },
   { type: 'car', name: 'Car', category: 'Structure', width: 1850, depth: 4700, height: 1500, color: '#8c2f2f' },
+  // LG French door fridges, one per model (LG's published size, finish and photo).
+  ...LG_FRIDGES.map((f) => ({
+    type: lgFridgeType(f.model),
+    name: `LG ${f.litres}L ${f.short} – ${f.finish}`,
+    category: 'LG fridges',
+    width: f.width,
+    depth: f.depth,
+    height: f.height,
+    color: f.hex,
+    link: { url: f.url, label: `LG ${f.model}` },
+  })),
+  // Kaboodle units are placed from the kitchen designer (which product it is lives in the item's options).
+  { type: 'kaboodle', name: 'Kaboodle cabinet', category: KITCHEN_DESIGNER, width: 600, depth: 600, height: 903, color: '#f4f4f2', link: { url: 'https://www.kaboodle.com.au/', label: 'Kaboodle' } },
 ];
 
 export const ITEM_MAP: Record<string, ItemDef> = Object.fromEntries(ITEMS.map((d) => [d.type, d]));
 export const OPENING_MAP: Record<string, OpeningDef> = Object.fromEntries(OPENINGS.map((d) => [d.id, d]));
 
-export const CATEGORIES = Array.from(new Set(ITEMS.map((i) => i.category)));
+export const CATEGORIES = Array.from(new Set(ITEMS.map((i) => i.category))).filter((c) => c !== KITCHEN_DESIGNER);
 
 export const FLOOR_COLORS: Record<string, string> = {
   timber: '#c49a6c',

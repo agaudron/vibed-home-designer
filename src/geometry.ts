@@ -1,4 +1,4 @@
-import type { Design, Opening, Vec, Wall } from './types';
+import type { Design, Opening, OpeningKind, Vec, Wall } from './types';
 
 export const v = (x: number, y: number): Vec => ({ x, y });
 export const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
@@ -362,15 +362,23 @@ export interface OpeningSideGaps {
   /** Positions along the host wall (mm from its start). */
   a: number; // near edge of the opening
   b: number; // far edge
-  leftFace: number; // nearest wall face before the opening
-  rightFace: number; // nearest wall face after it
+  leftFace: number; // nearest wall face (or other door/window edge) before the opening
+  rightFace: number; // nearest one after it
+  /** What each side's gap runs to. */
+  leftTo: OpeningKind | 'wall';
+  rightTo: OpeningKind | 'wall';
 }
 
 /**
- * Distances from a door/window's edges to the nearest wall faces on either side along its wall
- * (walls that meet or cross it, or the wall's ends).
+ * Distances from a door/window's edges to whatever is next on either side along its wall: the nearest
+ * wall face (walls that meet or cross it, or the wall's ends) or another door/window in the same wall.
  */
-export function openingSideGaps(o: Pick<Opening, 'offset' | 'width'>, host: Wall, walls: Wall[]): OpeningSideGaps {
+export function openingSideGaps(
+  o: Pick<Opening, 'offset' | 'width'> & { id?: string },
+  host: Wall,
+  walls: Wall[],
+  openings: Opening[] = [],
+): OpeningSideGaps {
   const f = wallFrame(host);
   const c = clampOpeningOffset(o, f.length);
   const a = c - o.width / 2;
@@ -395,7 +403,28 @@ export function openingSideGaps(o: Pick<Opening, 'offset' | 'width'>, host: Wall
       if (face >= b - 0.5 && face < rightFace) rightFace = face;
     }
   }
-  return { a, b, leftFace, rightFace };
+  let leftTo: OpeningKind | 'wall' = 'wall';
+  let rightTo: OpeningKind | 'wall' = 'wall';
+  for (const x of openings) {
+    if (x.id === o.id || x.wallId !== host.id) continue;
+    const xc = clampOpeningOffset(x, f.length);
+    const xa = xc - x.width / 2;
+    const xb = xc + x.width / 2;
+    if (xb <= a + 0.5 && xb > leftFace) {
+      leftFace = xb;
+      leftTo = x.kind;
+    }
+    if (xa >= b - 0.5 && xa < rightFace) {
+      rightFace = xa;
+      rightTo = x.kind;
+    }
+  }
+  return { a, b, leftFace, rightFace, leftTo, rightTo };
+}
+
+/** Tooltip for one side's gap from openingSideGaps. */
+export function openingGapTitle(to: OpeningKind | 'wall') {
+  return to === 'wall' ? 'Distance to the wall' : to === 'window' ? 'Distance to the next window' : to === 'opening' ? 'Distance to the next opening' : 'Distance to the next door';
 }
 
 /**
@@ -476,14 +505,29 @@ export const DEFAULT_INTERIOR_DOOR = { design: 'flush', glass: 'translucent' as 
 /** Hinged / double doors that can take a leaf design. */
 export const isLeafDoor = (o: Opening) => o.kind === 'door' || o.kind === 'double_door';
 
+/** Door jamb lining thickness each side of a doorway, and the gap round / between door leaves (mm). */
+export const DOOR_JAMB = 32;
+export const DOOR_GAP = 3;
+/** Double doors: the opening width for two leaves of this width (gaps at both edges and between the leaves). */
+export const doubleDoorWidth = (leaf: number) => 2 * leaf + 3 * DOOR_GAP + 2 * DOOR_JAMB;
+/** Double doors: the width of each leaf in an opening this wide. */
+export const doubleDoorLeaf = (width: number) => (width - 3 * DOOR_GAP - 2 * DOOR_JAMB) / 2;
+
 /**
  * The door as it should be drawn: a door on an inside wall with no design of its own follows the house
- * interior-door style (design, glass, colour, jamb).
+ * interior-door style (design, glass, colour, jamb), and one with no door stop setting the house door stop.
  */
 export function effectiveDoor(o: Opening, d: Design, onInsideWall: boolean): Opening {
-  if (!isLeafDoor(o) || o.design || !onInsideWall) return o;
-  const g = d.settings.interiorDoor ?? DEFAULT_INTERIOR_DOOR;
-  return { ...o, design: g.design, glass: g.glass, color: g.color, jamb: o.jamb ?? g.jamb };
+  if (!isLeafDoor(o) || !onInsideWall) return o;
+  let out = o;
+  if (!o.design) {
+    const g = d.settings.interiorDoor ?? DEFAULT_INTERIOR_DOOR;
+    out = { ...out, design: g.design, glass: g.glass, color: g.color, jamb: o.jamb ?? g.jamb };
+  }
+  // ...and the house handle and door stop, unless it has its own (or is set to none).
+  if (!o.handle && d.settings.interiorHandle) out = { ...out, handle: d.settings.interiorHandle };
+  if (!o.doorStop && d.settings.interiorDoorStop) out = { ...out, doorStop: d.settings.interiorDoorStop };
+  return out;
 }
 
 // ---------- Stacker doors ----------

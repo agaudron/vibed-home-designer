@@ -1,7 +1,8 @@
+import { LG_FRIDGE_BY_TYPE } from './lgFridges';
 import { ITEM_MAP, productLink, SKYLIGHT_DEFAULTS, SKYLIGHT_MODELS, SOLAR_DEFAULTS, SOLAR_PANELS, TIMBERLINE, VANITY_DEFAULTS } from './catalog';
 
 /**
- * Details for items modelled on a real product, for the product card: brand, description, key specs, price,
+ * Details for items modelled on a real product, for the product card: brand, description, key specs,
  * photo and links. ABI Interiors details come from the (on-demand) ABI product list.
  */
 
@@ -13,7 +14,6 @@ export interface ProductInfo {
   image?: string;
   description?: string;
   specs: [string, string][];
-  price?: string;
   /** Small print, e.g. which details are assumed. */
   note?: string;
 }
@@ -49,7 +49,6 @@ const STATIC: Record<string, Omit<ProductInfo, 'url'>> = {
       ['Finish', 'Natural oak'],
       ['Weight', '272 kg'],
     ],
-    price: '$6,895',
   },
   buffet_lombardozzi: {
     ...HN,
@@ -118,7 +117,7 @@ export async function productInfo(it: ItemLike): Promise<ProductInfo | null> {
       return {
         ...ABI,
         name: ITEM_MAP[it.type]?.name ?? 'ABI Interiors product',
-        description: 'Choose the exact ABI Interiors product in this item’s panel to see its details, size, finish and price.',
+        description: 'Choose the exact ABI Interiors product in this item’s panel to see its details, size and finish.',
         specs: [],
         url: ABI.brandUrl,
       };
@@ -137,9 +136,25 @@ export async function productInfo(it: ItemLike): Promise<ProductInfo | null> {
         ...(p.mount ? ([['Mounting', p.mount]] as [string, string][]) : []),
         ['Category', p.group],
       ].filter(([, v]) => v) as [string, string][],
-      price: p.price,
     };
   }
+  const lg = LG_FRIDGE_BY_TYPE[it.type];
+  if (lg)
+    return {
+      brand: 'LG',
+      brandUrl: 'https://www.lg.com/au/',
+      name: `${lg.name} (${lg.model})`,
+      url: lg.url,
+      image: lg.image,
+      description: lg.blurb,
+      specs: [
+        ['Capacity', `${lg.litres} L`],
+        ['Finish', lg.finish],
+        ['Size', size(lg.width, lg.depth, lg.height)],
+        ['Model', lg.model],
+      ],
+      note: 'Size is LG’s published product size (W × H × D) including handles. Check the installation guide for cavity clearances.',
+    };
   if (it.type === 'vanity_tl') {
     const o = { ...VANITY_DEFAULTS, ...(it.options ?? {}) };
     return {
@@ -199,5 +214,5 @@ export async function productInfo(it: ItemLike): Promise<ProductInfo | null> {
 
 /** Whether an item type is (or can be) a real product. */
 export function isProductType(type: string) {
-  return type.startsWith('abi_') || type === 'vanity_tl' || type === 'skylight' || type === 'solar_array' || type in STATIC;
+  return type.startsWith('abi_') || type in LG_FRIDGE_BY_TYPE || type === 'vanity_tl' || type === 'skylight' || type === 'solar_array' || type in STATIC;
 }

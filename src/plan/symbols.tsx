@@ -12,6 +12,8 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
     <line key={k} x1={x1} y1={y1} x2={x2} y2={y2} />
   );
 
+  if (type.startsWith('lg_')) return itemSymbol('fridge', w, d, options); // LG fridges
+
   switch (type) {
     case 'bed_single':
     case 'bed_double':
@@ -98,6 +100,26 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
     case 'mirror':
     case 'towel_rail':
       return <rect x={-hw} y={-hd} width={w} height={d} className="sym-dashed" />;
+    case 'kaboodle': {
+      // Draw it like the matching generic kitchen unit.
+      const cls = String(options?.cls ?? 'base');
+      const as: Record<string, string> = {
+        sink: 'sink_cabinet',
+        cooktop: 'cooktop_cabinet',
+        dishwasher: 'dishwasher',
+        tall: 'tall_cabinet',
+        oven_tower: 'oven_tower',
+        wall: 'wall_cabinet',
+        wall_corner: 'wall_cabinet',
+        rangehood: 'wall_cabinet',
+        fridge: 'wall_cabinet',
+        panel: 'none',
+        kickboard: 'none',
+        benchtop: 'none',
+      };
+      const t = as[cls] ?? 'base_cabinet';
+      return t === 'none' ? null : itemSymbol(t, w, d, options);
+    }
     case 'abi_vanity':
       return itemSymbol(options?.double ? 'double_vanity' : 'vanity', w, d, options);
     case 'abi_basin':

@@ -1,6 +1,6 @@
 import { add, clamp, dot, mul, rad, rot, sub, v, wallExtensions, wallFrame } from './geometry';
 import { exteriorSides } from './facade';
-import type { Design, Roof, Vec } from './types';
+import type { Design, Item, Roof, RoofExtension, Vec } from './types';
 
 /**
  * Automatic roof generation.
@@ -12,6 +12,9 @@ import type { Design, Roof, Vec } from './types';
  *    exactly the union of the hip roofs of those rectangles (the roof height at a point is the largest
  *    square that fits around it), so overlapping the pieces gives correct hips and valleys.
  * 3. Gable/skillion ends get wall infill up to the underside of the roof.
+ *
+ * The footprint can be pulled out over patios with roof extensions (plan rectangles), and a column standing
+ * outside the house pulls the roof out over itself.
  *
  * If the walls aren't all at right angles, the roof is built over the convex hull of the walls instead.
  *
@@ -41,6 +44,17 @@ export interface RoofResult {
   note?: string;
   /** Walls that are slightly (but not exactly) square — "Square up walls" would fix them. */
   offSquare: number;
+  /** Outline of the area under the roof (before the eaves), world coordinates, with each edge's outward normal. */
+  outline: { a: Vec; b: Vec; n: Vec }[];
+  /** Angle of the roof's grid (degrees): extensions line up with it. */
+  angle: number;
+  /** Columns holding the roof up (they rise to the top of the walls). */
+  supports: string[];
+  /**
+   * Roofed area outside the house walls (patios, verandas, column extensions), world rectangles. It gets eave
+   * lining right back to the walls; the eaves' own overhang strip is lined separately.
+   */
+  outside: Vec[][];
 }
 
 export type RoofOutcome = RoofResult | { error: string };
@@ -106,18 +120,61 @@ export function generateRoof(d: Design, roof: Roof): RoofOutcome {
   let mode: RoofResult['mode'];
   let note: string | undefined;
   let hull: Vec[] | null = null;
+  let outside: Vec[][] = [];
 
+  const columns = supportColumns(d);
+  const supports: string[] = [];
   if (rectilinear) {
-    // Porches/verandas set to sit under the main roof count as part of the footprint.
-    const covered = coveredItems(d).map((it) => {
-      const c = itemFootprint(it).map(toLocal);
-      return { x0: Math.min(...c.map((p) => p.x)), x1: Math.max(...c.map((p) => p.x)), y0: Math.min(...c.map((p) => p.y)), y1: Math.max(...c.map((p) => p.y)) };
+    // Porches/verandas set to sit under the main roof, and roof extensions, count as part of the footprint.
+    const bbox = (c: Vec[]): Rect => ({
+      x0: Math.min(...c.map((p) => p.x)),
+      x1: Math.max(...c.map((p) => p.x)),
+      y0: Math.min(...c.map((p) => p.y)),
+      y1: Math.max(...c.map((p) => p.y)),
     });
-    const r = rectilinearFootprint([...walls.map((w) => wallRect(w, walls, toLocal)), ...covered]);
+    const covered = [...coveredItems(d), ...(roof.extensions ?? [])].map((it) => bbox(itemFootprint(it).map(toLocal)));
+    const wallRects = walls.map((w) => wallRect(w, walls, toLocal));
+    const base = [...wallRects, ...covered];
+    let r = rectilinearFootprint(base);
     if ('error' in r) return r;
+    // Columns outside the house: pull the roof out from the nearest wing to cover them.
+    const reach: Rect[] = [];
+    for (const col of columns) {
+      const c = bbox(itemFootprint(col).map(toLocal));
+      const gap = (q: Rect) => Math.hypot(Math.max(0, q.x0 - c.x1, c.x0 - q.x1), Math.max(0, q.y0 - c.y1, c.y0 - q.y1));
+      const near = r.rects.reduce((a, b) => (gap(b) < gap(a) ? b : a));
+      const dd = gap(near);
+      if (dd > MAX_SUPPORT_REACH) continue;
+      supports.push(col.id);
+      // Already inside the footprint or under its eaves.
+      const under = Math.max(near.x0 - c.x0, c.x1 - near.x1, near.y0 - c.y0, c.y1 - near.y1);
+      if (under <= o) continue;
+      // Span the wing's whole side out to the column's outer face (like a patio roof). Off a corner, it runs
+      // along the side the column is furthest out from and stretches past the corner to reach it.
+      const e = { x0: Math.min(near.x0, c.x0), x1: Math.max(near.x1, c.x1), y0: Math.min(near.y0, c.y0), y1: Math.max(near.y1, c.y1) };
+      const outX = Math.max(c.x0 - near.x1, near.x0 - c.x1);
+      const outY = Math.max(c.y0 - near.y1, near.y0 - c.y1);
+      if (outX > 0 && outX >= outY) {
+        if (c.x0 > near.x1) e.x0 = near.x1;
+        else e.x1 = near.x0;
+      } else if (outY > 0) {
+        if (c.y0 > near.y1) e.y0 = near.y1;
+        else e.y1 = near.y0;
+      }
+      reach.push(e);
+    }
+    if (reach.length) {
+      r = rectilinearFootprint([...base, ...reach]);
+      if ('error' in r) return r;
+    }
     footprint = r.rects;
     boundary = r.boundary;
     mode = 'rectilinear';
+    // What the walls alone enclose: anything else under the roof is outside the house.
+    if (covered.length || reach.length) {
+      const house = rectilinearFootprint(wallRects);
+      if (!('error' in house)) outside = rectDifference(footprint, house.rects).map(rectPoly);
+    }
   } else {
     const pts: Vec[] = [];
     for (const w of walls) {
@@ -128,7 +185,11 @@ export function generateRoof(d: Design, roof: Roof): RoofOutcome {
       const h = mul(fr.n, w.thickness / 2);
       pts.push(add(a, h), sub(a, h), add(b, h), sub(b, h));
     }
-    for (const it of coveredItems(d)) pts.push(...itemFootprint(it));
+    for (const it of [...coveredItems(d), ...(roof.extensions ?? [])]) pts.push(...itemFootprint(it));
+    for (const col of columns) {
+      pts.push(...itemFootprint(col));
+      supports.push(col.id);
+    }
     hull = convexHull(pts.map(toLocal));
     if (hull.length < 3) return { error: 'The walls don’t enclose an area yet.' };
     footprint = [];
@@ -297,6 +358,17 @@ export function generateRoof(d: Design, roof: Roof): RoofOutcome {
     const w = toWorld(v(q.x, q.z));
     return { x: w.x, y: q.y, z: w.y };
   };
+  // Outline edges with their outward side (rectilinear footprints only).
+  const inFoot = (q: Vec) => footprint.some((r) => q.x > r.x0 && q.x < r.x1 && q.y > r.y0 && q.y < r.y1);
+  const outline: RoofResult['outline'] = [];
+  if (mode === 'rectilinear')
+    for (const [a, b] of boundary) {
+      const m = mul(add(a, b), 0.5);
+      const n = Math.abs(a.y - b.y) < 0.5 ? v(0, 1) : v(1, 0);
+      const out = !inFoot(add(m, mul(n, 5))) && inFoot(sub(m, mul(n, 5))) ? n : !inFoot(sub(m, mul(n, 5))) && inFoot(add(m, mul(n, 5))) ? mul(n, -1) : null;
+      if (out) outline.push({ a: toWorld(a), b: toWorld(b), n: toWorld(out) });
+    }
+
   return {
     faces: faces.map((fc) => ({ ...fc, pts: fc.pts.map(world) })),
     eaves: pieces.map((p) => (p.kind === 'gable' ? rectPoly(p.rect) : p.poly).map(toWorld)),
@@ -305,7 +377,50 @@ export function generateRoof(d: Design, roof: Roof): RoofOutcome {
     mode,
     note,
     offSquare,
+    outline,
+    angle: (th * 180) / Math.PI,
+    supports,
+    outside: outside.map((poly) => poly.map(toWorld)),
   };
+}
+
+/** The area covered by `a` but not `b`, as rectangles (cells merged along rows, then matching rows merged). */
+function rectDifference(a: Rect[], b: Rect[]): Rect[] {
+  const xs = uniqSorted([...a, ...b].flatMap((r) => [r.x0, r.x1]));
+  const ys = uniqSorted([...a, ...b].flatMap((r) => [r.y0, r.y1]));
+  const inAny = (rs: Rect[], x: number, y: number) => rs.some((r) => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1);
+  const out: Rect[] = [];
+  let open: Rect[] = []; // runs from the previous row, still growing downwards
+  for (let j = 0; j + 1 < ys.length; j++) {
+    const cy = (ys[j] + ys[j + 1]) / 2;
+    const runs: Rect[] = [];
+    for (let i = 0; i + 1 < xs.length; i++) {
+      const cx = (xs[i] + xs[i + 1]) / 2;
+      if (!inAny(a, cx, cy) || inAny(b, cx, cy)) continue;
+      const last = runs[runs.length - 1];
+      if (last && Math.abs(last.x1 - xs[i]) < 0.5) last.x1 = xs[i + 1];
+      else runs.push({ x0: xs[i], x1: xs[i + 1], y0: ys[j], y1: ys[j + 1] });
+    }
+    const next: Rect[] = [];
+    for (const r of runs) {
+      const above = open.find((o) => Math.abs(o.x0 - r.x0) < 0.5 && Math.abs(o.x1 - r.x1) < 0.5 && Math.abs(o.y1 - r.y0) < 0.5);
+      if (above) {
+        above.y1 = r.y1;
+        next.push(above);
+      } else next.push(r);
+    }
+    for (const o of open) if (!next.includes(o)) out.push(o);
+    open = next;
+  }
+  return [...out, ...open].filter((r) => r.x1 - r.x0 > 1 && r.y1 - r.y0 > 1);
+}
+
+/** Columns this far (mm) from the house still get the roof pulled out over them. */
+const MAX_SUPPORT_REACH = 10000;
+
+/** Floor-standing, full-height columns: they hold up the roof. */
+function supportColumns(d: Design) {
+  return d.items.filter((i) => i.type === 'column' && i.elevation < 100 && i.height >= 1800);
 }
 
 /**
@@ -345,7 +460,7 @@ export function coveredItems(d: Design) {
   return d.items.filter((i) => i.underRoof && (i.type === 'veranda' || i.type === 'porch'));
 }
 
-function itemFootprint(it: Design['items'][number]): Vec[] {
+function itemFootprint(it: Pick<Item, 'x' | 'y' | 'width' | 'depth' | 'rotation'> | RoofExtension): Vec[] {
   const r = rad(it.rotation);
   const hw = it.width / 2;
   const hd = it.depth / 2;

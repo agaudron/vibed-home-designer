@@ -12,6 +12,8 @@ export interface AppState {
   showRoof: boolean;
   /** First-person walk-through mode is on. */
   walking: boolean;
+  /** Kitchen designer open for this room (id). */
+  kitchen: string | null;
   /** Where the walker is (plan mm) and which way they face, for the 2D marker. */
   walker: { x: number; y: number; yaw: number } | null;
   /** Side panels collapsed to make more room for the views. */
@@ -151,6 +153,7 @@ class Store {
       cutaway: false,
       showRoof: false, // the 3D view opens without the roof so you can see in; the Roof button shows it
       walking: false,
+      kitchen: null,
       walker: null,
       hideCatalog: readPref('hideCatalog'),
       hideProps: readPref('hideProps'),
@@ -210,7 +213,7 @@ class Store {
   replaceDesign(design: Design, fileName: string | null) {
     this.past = [];
     this.future = [];
-    this.state = { ...this.state, design, selection: null, fileName, dirty: false, tool: { kind: 'select' } };
+    this.state = { ...this.state, design, selection: null, fileName, dirty: false, tool: { kind: 'select' }, kitchen: null };
     this.notify();
     this.scheduleAutosave();
     requestAnimationFrame(() => {
@@ -269,6 +272,7 @@ class Store {
     if (s.kind === 'facade') return;
     if (s.kind === 'roof') {
       if (!d.roof) this.state = { ...this.state, selection: null };
+      else if (s.id !== 'roof' && !d.roof.extensions?.some((x) => x.id === s.id)) this.state = { ...this.state, selection: { kind: 'roof', id: 'roof' } };
       return;
     }
     const list =
@@ -345,6 +349,9 @@ export function normaliseDesign(raw: unknown): Design {
       ...(o.panels ? { panels: num(o.panels, 3), panelWidth: num(o.panelWidth, 1000) } : {}),
       ...(o.dressing && typeof o.dressing === 'object' && o.dressing.type ? { dressing: { ...o.dressing } } : {}),
       ...(o.handle && typeof o.handle === 'object' ? { handle: { ...o.handle } } : {}),
+      ...(o.trim && typeof o.trim === 'object' ? { trim: { ...o.trim } } : {}),
+      ...(o.windowSill === false ? { windowSill: false } : {}),
+      ...(o.doorStop && typeof o.doorStop === 'object' && (o.doorStop.mount === 'wall' || o.doorStop.mount === 'floor' || o.doorStop.mount === 'none') ? { doorStop: { mount: o.doorStop.mount, product: String(o.doorStop.product ?? '') } } : {}),
     })),
     items: (r.items ?? []).map((i: any) => ({
       id: String(i.id),
@@ -362,6 +369,7 @@ export function normaliseDesign(raw: unknown): Design {
       ...(i.options && typeof i.options === 'object' ? { options: { ...i.options } } : {}),
     })),
     rooms: (r.rooms ?? []).map((rm: any) => ({
+      ...(rm.kitchen && typeof rm.kitchen === 'object' ? { kitchen: { ...rm.kitchen } } : {}),
       id: String(rm.id),
       name: String(rm.name ?? 'Room'),
       points: Array.isArray(rm.points) ? rm.points.map(vec) : [],
@@ -370,6 +378,7 @@ export function normaliseDesign(raw: unknown): Design {
       cornice: rm.cornice ?? null,
       skirting: rm.skirting ?? null,
       floorDirection: typeof rm.floorDirection === 'number' ? rm.floorDirection : null,
+      ...(rm.floorSize && typeof rm.floorSize === 'object' ? { floorSize: { ...rm.floorSize } } : {}),
       wallLining: rm.wallLining ?? null,
     })),
     dimensions: (r.dimensions ?? []).map((dm: any) => ({ id: String(dm.id), a: vec(dm.a), b: vec(dm.b) })),

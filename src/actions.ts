@@ -35,6 +35,11 @@ export function newItem(type: string, x: number, y: number, rotation: number): I
   };
 }
 
+/** A new item for the place tool: the catalogue item, with the tool's preset (e.g. a Kaboodle product) on top. */
+export function placementItem(tool: { itemType: string; preset?: Partial<Item> }, x: number, y: number): Item {
+  return { ...newItem(tool.itemType, x, y, 0), ...tool.preset, x, y };
+}
+
 export function newOpening(catalogId: string, wall: Wall, offset: number): Opening {
   const def = OPENING_MAP[catalogId];
   const o: Opening = {
@@ -86,6 +91,8 @@ export function deleteSelection() {
       case 'dimension':
         return { ...d, dimensions: d.dimensions.filter((m) => m.id !== s.id) };
       case 'roof':
+        // A selected extension is removed on its own; otherwise the whole roof goes.
+        if (s.id !== 'roof' && d.roof) return { ...d, roof: { ...d.roof, extensions: (d.roof.extensions ?? []).filter((x) => x.id !== s.id) } };
         return { ...d, roof: null };
       case 'facade':
         return d;

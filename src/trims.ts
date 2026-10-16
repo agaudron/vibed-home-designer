@@ -1,7 +1,7 @@
 import { exteriorSides } from './facade';
 import { add, dot, effectiveOpenings, mul, pointInPolygon, sub, wallExtensions, wallFrame, wallSpans } from './geometry';
 import { FLOOR_COLORS } from './catalog';
-import type { CorniceType, Design, FloorFinish, LiningType, Room, SkirtingType, Vec, Wall } from './types';
+import type { CorniceType, Design, FloorFinish, FloorSize, LiningType, Opening, OpeningKind, Room, SkirtingType, Vec, Wall } from './types';
 
 /**
  * Cornices and skirting boards: their profiles (cross-sections) and where they run.
@@ -59,6 +59,39 @@ export const SKIRTINGS: Record<SkirtingType, TrimProfile> = {
   },
   lambs_tongue: { name: "Lamb's tongue 90 mm", points: [[0, 0], [18, 0], [18, 62], ...arc(4, 62, 14, 0, 90, 6), [2, 84], [0, 90]] },
 };
+
+/** Default width of the trim (architraves) round windows and doors, mm. */
+export const WINDOW_TRIM = 66;
+export const DOOR_TRIM = 66;
+
+/** Doors and windows that get trim (architraves) round them; sliding, stacker and garage doors don't. */
+export function hasOpeningTrim(kind: OpeningKind) {
+  return kind === 'window' || kind === 'door' || kind === 'double_door' || kind === 'cavity_door';
+}
+
+export interface OpeningTrim {
+  type: SkirtingType;
+  /** Face width, mm (0 = none). */
+  width: number;
+  profile: TrimProfile;
+}
+
+/**
+ * The trim round a door or window: its own choice, or the house's. The house trim uses the skirting's profile
+ * (square edge if there's no skirting), 66 mm wide round doors and the "Window trim" width round windows.
+ */
+export function houseTrimType(d: Design): SkirtingType {
+  const s = d.settings.skirting;
+  return s === 'none' || s === 'shadow' ? 'square66' : s;
+}
+export function houseTrimWidth(d: Design, kind: OpeningKind) {
+  return kind === 'window' ? (d.settings.windowTrim ?? WINDOW_TRIM) : DOOR_TRIM;
+}
+export function openingTrim(d: Design, o: Opening): OpeningTrim {
+  const type = o.trim?.type ?? houseTrimType(d);
+  const width = o.trim?.width ?? houseTrimWidth(d, o.kind);
+  return { type, width: type === 'none' ? 0 : width, profile: SKIRTINGS[type] ?? SKIRTINGS.square66 };
+}
 
 /** Dado rail on top of VJ wainscoting (profile from its base, 60 mm tall). */
 export const DADO_RAIL: TrimProfile = { name: 'Dado rail', points: [[0, 0], [12, 0], [20, 10], [20, 26], [14, 32], [20, 38], [20, 50], [12, 60], [0, 60]] };
@@ -296,11 +329,29 @@ function subtract([a, b]: [number, number], holes: [number, number][]): [number,
   return parts;
 }
 
-/** The floor finish and colour a room actually uses (its own, or the house flooring). */
-export function floorOf(d: Design, room?: Room | null): { finish: FloorFinish; color: string; direction: number } {
+/** Default board / tile sizes for each finish (what the floors looked like before sizes could be set). */
+export const FLOOR_SIZE_DEFAULTS: Record<FloorFinish, Required<FloorSize>> = {
+  timber: { board: 130, tileW: 600, tileL: 600, grout: 2 },
+  hybrid: { board: 180, tileW: 600, tileL: 600, grout: 2 },
+  tile: { board: 130, tileW: 600, tileL: 600, grout: 3 },
+  large_tile: { board: 130, tileW: 600, tileL: 1200, grout: 2 },
+  carpet: { board: 130, tileW: 600, tileL: 600, grout: 2 },
+  concrete: { board: 130, tileW: 600, tileL: 600, grout: 2 },
+};
+
+/** Finishes with boards (a board width) and with tiles (tile size and grout). */
+export const BOARD_FLOORS = new Set<FloorFinish>(['timber', 'hybrid']);
+export const TILE_FLOORS = new Set<FloorFinish>(['tile', 'large_tile']);
+
+/** The floor finish, colour, direction and sizes a room actually uses (its own, or the house flooring). */
+export function floorOf(d: Design, room?: Room | null): { finish: FloorFinish; color: string; direction: number; size: Required<FloorSize> } {
   const direction = room?.floorDirection ?? d.settings.flooring.direction ?? 0;
-  if (room?.floor) return { finish: room.floor, color: room.color ?? FLOOR_COLORS[room.floor], direction };
-  return { ...d.settings.flooring, direction };
+  const own = !!room?.floor;
+  const finish = room?.floor ?? d.settings.flooring.finish;
+  // A room with its own finish doesn't take the house sizes (they were chosen for a different floor).
+  const size = { ...FLOOR_SIZE_DEFAULTS[finish], ...(own ? {} : d.settings.flooring.size), ...(room?.floorSize ?? {}) };
+  if (own) return { finish, color: room!.color ?? FLOOR_COLORS[finish], direction, size };
+  return { ...d.settings.flooring, direction, size };
 }
 
 /** Floors made of boards / planks, where the direction matters. */

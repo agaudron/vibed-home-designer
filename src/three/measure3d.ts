@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { add, clampOpeningOffset, dot, itemCorners, mul, openingSideGaps, rad, sub, v, wallExtensions, wallFrame } from '../geometry';
+import { add, clampOpeningOffset, dot, itemCorners, mul, openingGapTitle, openingSideGaps, rad, sub, v, wallExtensions, wallFrame } from '../geometry';
 import { store } from '../store';
 import { itemClearances } from '../clearance';
 import type { Design, Item, Opening, Selection, Vec, Wall } from '../types';
@@ -86,7 +86,7 @@ function updateOpening(id: string, patch: (o: Opening, w: Wall) => Partial<Openi
 
 function openingMeasures(d: Design, o: Opening, w: Wall, camera: THREE.Vector3): Measures {
   const f = wallFrame(w);
-  const g = openingSideGaps(o, w, d.walls);
+  const g = openingSideGaps(o, w, d.walls, d.openings);
   // Draw on the face of the wall the camera is looking at.
   const side = dot(sub(v(camera.x, camera.z), w.start), f.n) >= 0 ? 1 : -1;
   const face = mul(f.n, side * (w.thickness / 2 + 40));
@@ -98,11 +98,11 @@ function openingMeasures(d: Design, o: Opening, w: Wall, camera: THREE.Vector3):
   const alongDir = new THREE.Vector3(f.u.x, 0, f.u.y);
 
   L.dim(P(at(g.leftFace), midY), P(at(g.a), midY), up, {
-    title: 'Distance to the wall on this side',
+    title: openingGapTitle(g.leftTo),
     commit: (val) => updateOpening(o.id, () => ({ offset: g.leftFace + val + o.width / 2 })),
   });
   L.dim(P(at(g.b), midY), P(at(g.rightFace), midY), up, {
-    title: 'Distance to the wall on this side',
+    title: openingGapTitle(g.rightTo),
     commit: (val) => updateOpening(o.id, () => ({ offset: g.rightFace - val - o.width / 2 })),
   });
   const c = clampOpeningOffset(o, f.length);

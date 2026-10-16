@@ -5,7 +5,7 @@ import type { ProductInfo } from '../productInfo';
 import { store, useStore } from '../store';
 
 /**
- * Pops up when you select (or ask about) a real product: photo, brand, description, key specs, price and links to
+ * Pops up when you select (or ask about) a real product: photo, brand, description, key specs and links to
  * the product and the brand. It floats over the corner of the views and doesn't get in the way of editing.
  */
 
@@ -65,7 +65,6 @@ export default function ProductCard() {
       <div className="product-card-body">
         <div className="product-card-brand">{info.brand}</div>
         <div className="product-card-name">{info.name}</div>
-        {info.price && <div className="product-card-price">{info.price}<span> when listed</span></div>}
         {info.description && <p className="product-card-desc">{info.description}</p>}
         {info.specs.length > 0 && (
           <dl className="product-card-specs">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as RPointerEvent, ReactNode } from 'react';
 import { ITEM_MAP, OPENING_MAP } from '../catalog';
-import { addWalls, moveWallPoints, newItem, newOpening, newRoom, newWall, setWallGap, setWallLength, wallMovePoints } from '../actions';
+import { addWalls, moveWallPoints, newItem, newOpening, placementItem, newRoom, newWall, setWallGap, setWallLength, wallMovePoints } from '../actions';
 import {
   add,
   clampOpeningOffset,
@@ -16,6 +16,7 @@ import {
   norm,
   normAngle,
   polygonArea,
+  openingGapTitle,
   openingSideGaps,
   pointInPolygon,
   effectiveOpenings,
@@ -36,16 +37,20 @@ import {
   stackerLayout,
   dressingSide,
   dot,
+  effectiveDoor,
+  uid,
 } from '../geometry';
 import { store, useStore } from '../store';
-import type { Design, Dimension, Item, Opening, Room, Vec, Wall } from '../types';
+import type { Design, Dimension, Item, Opening, Room, RoofExtension, Vec, Wall } from '../types';
 import { generateRoof } from '../roof';
+import type { RoofOutcome } from '../roof';
 import { itemClearances } from '../clearance';
 import { isTyping } from '../keyboard';
 import { exteriorSides } from '../facade';
-import { checkDoor, clearOffset, MIN_OPEN } from '../doorClearance';
+import { checkDoor, clearOffset, doorStopLayout, MIN_OPEN } from '../doorClearance';
+import { DOOR_STOP_SIZE } from '../doorStops';
 import { CONSTRUCTIONS } from '../construction';
-import { DIRECTIONAL_FLOORS, floorOf } from '../trims';
+import { BOARD_FLOORS, DIRECTIONAL_FLOORS, floorOf } from '../trims';
 import { nearestWall, snapItem, snapPoint } from './snap';
 import type { SnapResult } from './snap';
 import { itemOutline, itemSymbol } from './symbols';
@@ -67,7 +72,30 @@ type Drag =
   | { kind: 'room'; id: string; start: Vec; orig: Room }
   | { kind: 'room-vertex'; id: string; index: number }
   | { kind: 'dimension'; id: string; start: Vec; orig: Dimension }
-  | { kind: 'rect'; start: Vec };
+  | { kind: 'rect'; start: Vec }
+  // Roof: pull an edge out (creates an extension), move an extension, or drag one of its sides.
+  | { kind: 'roof-pull'; edge: { a: Vec; b: Vec; n: Vec }; overhang: number; extId: string | null }
+  | { kind: 'roof-ext'; id: string; start: Vec; orig: RoofExtension }
+  | { kind: 'roof-ext-side'; id: string; side: number; orig: RoofExtension };
+
+/** Board-line pattern for a floor: its direction and the spacing (board width, or tile width plus grout). */
+function boardPattern(fl: ReturnType<typeof floorOf>) {
+  const dir = ((Math.round(fl.direction) % 180) + 180) % 180;
+  const step = BOARD_FLOORS.has(fl.finish) ? fl.size.board : fl.size.tileW + fl.size.grout;
+  return `${dir}-${Math.max(20, Math.round(step))}`;
+}
+
+/** Corners of a roof extension. */
+function extCorners(ex: RoofExtension): Vec[] {
+  const r = rad(ex.rotation);
+  const c = v(ex.x, ex.y);
+  return [v(-1, -1), v(1, -1), v(1, 1), v(-1, 1)].map((s) => add(c, rot(v((s.x * ex.width) / 2, (s.y * ex.depth) / 2), r)));
+}
+
+function withExtension(d: Design, id: string, fn: (ex: RoofExtension) => RoofExtension): Design {
+  if (!d.roof) return d;
+  return { ...d, roof: { ...d.roof, extensions: (d.roof.extensions ?? []).map((ex) => (ex.id === id ? fn(ex) : ex)) } };
+}
 
 interface DragState {
   drag: Drag;
@@ -84,6 +112,8 @@ export default function PlanView() {
   const selection = useStore((s) => s.selection);
   const tool = useStore((s) => s.tool);
   const walker = useStore((s) => s.walker);
+  const roofSel = selection?.kind === 'roof';
+  const roofRes = useMemo(() => (roofSel && design.roof ? generateRoof(design, design.roof) : null), [design, roofSel]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -96,6 +126,8 @@ export default function PlanView() {
   const [mods, setMods] = useState({ shift: false, alt: false });
   const [chain, setChain] = useState<Vec[]>([]);
   const [rectEnd, setRectEnd] = useState<Vec | null>(null);
+  /** Alignment lines while dragging an item (the edges it lined up with). */
+  const [itemGuides, setItemGuides] = useState<[Vec, Vec][]>([]);
   const [typed, setTyped] = useState('');
   const [lengthEdit, setLengthEdit] = useState<{ wallId: string; at: Vec; text: string; gap?: { side: 1 | -1; value: number; otherId: string }; opening?: { id: string; side: 'left' | 'right'; face: number }; item?: { id: string; dir: Vec; dist: number } } | null>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -125,6 +157,9 @@ export default function PlanView() {
     d.items.forEach((i) => pts.push(...itemCorners(i)));
     d.rooms.forEach((r) => pts.push(...r.points));
     d.dimensions.forEach((m) => pts.push(m.a, m.b));
+    // Kitchen designer: just the kitchen.
+    const kitchen = store.state.kitchen ? d.rooms.find((r) => r.id === store.state.kitchen) : undefined;
+    if (kitchen?.points.length) pts.splice(0, pts.length, ...kitchen.points);
     if (!pts.length) pts.push(v(0, 0), v(10000, 8000));
     const minX = Math.min(...pts.map((p) => p.x));
     const maxX = Math.max(...pts.map((p) => p.x));
@@ -192,12 +227,13 @@ export default function PlanView() {
     });
   };
 
-  const computeGhostItem = (p: Vec | null, free: boolean): Item | null => {
+  const ghostItemSnap = (p: Vec | null, free: boolean): { item: Item; guides: [Vec, Vec][] } | null => {
     if (tool.kind !== 'place' || !p) return null;
-    const base = newItem(tool.itemType, p.x, p.y, 0);
-    const sn = snapItem(design, base, p, { tol, grid: Math.min(grid, 50), free });
-    return { ...base, x: sn.x, y: sn.y, rotation: sn.rotation, id: '__ghost' };
+    const base = placementItem(tool, p.x, p.y);
+    const sn = snapItem(design, base, p, { tol: tol * 1.5, grid: Math.min(grid, 50), free });
+    return { item: { ...base, x: sn.x, y: sn.y, rotation: sn.rotation, id: '__ghost' }, guides: sn.guides };
   };
+  const computeGhostItem = (p: Vec | null, free: boolean): Item | null => ghostItemSnap(p, free)?.item ?? null;
 
   const computeGhostOpening = (p: Vec | null, free: boolean): { o: Opening; wall: Wall } | null => {
     if (tool.kind !== 'opening' || !p) return null;
@@ -463,6 +499,19 @@ export default function PlanView() {
       } else if (h === 'item-rotate') beginDrag(e, { kind: 'item-rotate', id });
       else if (h === 'item-resize') beginDrag(e, { kind: 'item-resize', id, orig: d.items.find((i) => i.id === id)! });
       else if (h === 'room-vertex') beginDrag(e, { kind: 'room-vertex', id, index: Number(target.dataset.index) });
+      else if (h === 'roof-pull' && roofRes && !('error' in roofRes) && d.roof) {
+        const edge = roofRes.outline[Number(target.dataset.index)];
+        if (edge) beginDrag(e, { kind: 'roof-pull', edge, overhang: Math.max(0, d.roof.overhang), extId: null });
+      } else if (h === 'roof-ext-side') {
+        const ex = d.roof?.extensions?.find((x) => x.id === id);
+        if (ex) beginDrag(e, { kind: 'roof-ext-side', id, side: Number(target.dataset.side), orig: ex });
+      }
+      return;
+    }
+    if (kind === 'roof-ext') {
+      const ex = d.roof?.extensions?.find((x) => x.id === id);
+      store.select({ kind: 'roof', id });
+      if (ex) beginDrag(e, { kind: 'roof-ext', id, start: p, orig: ex });
       return;
     }
     if (kind === 'item') {
@@ -512,7 +561,8 @@ export default function PlanView() {
       case 'item': {
         const it = d.items.find((i) => i.id === drag.id);
         if (!it) break;
-        const s = snapItem(d, it, sub(p, drag.off), { tol, grid: Math.min(grid, 50), free: free || e.altKey });
+        const s = snapItem(d, it, sub(p, drag.off), { tol: tol * 1.5, grid: Math.min(grid, 50), free: free || e.altKey });
+        setItemGuides(s.guides);
         applyDrag((dd) => ({ ...dd, items: dd.items.map((i) => (i.id === drag.id ? { ...i, x: s.x, y: s.y, rotation: s.rotation } : i)) }));
         break;
       }
@@ -591,6 +641,46 @@ export default function PlanView() {
         }));
         break;
       }
+      case 'roof-pull': {
+        const { a, b, n } = drag.edge;
+        // The cursor marks where the new eave goes; the covered area stops an overhang short of it.
+        const out = Math.max(300, roundTo(dot(sub(p, a), n) - drag.overhang, free ? 1 : 50));
+        const len = dist(a, b);
+        const ex: RoofExtension = {
+          id: drag.extId ?? uid('rx'),
+          ...add(mul(add(a, b), 0.5), mul(n, out / 2)),
+          width: Math.round(len),
+          depth: Math.round(out),
+          rotation: normAngle(deg(Math.atan2(b.y - a.y, b.x - a.x))),
+        };
+        if (!drag.extId) {
+          drag.extId = ex.id;
+          applyDrag((dd) => (dd.roof ? { ...dd, roof: { ...dd.roof, extensions: [...(dd.roof.extensions ?? []), ex] } } : dd));
+          store.select({ kind: 'roof', id: ex.id });
+        } else applyDrag((dd) => withExtension(dd, ex.id, () => ex));
+        break;
+      }
+      case 'roof-ext': {
+        let delta = sub(p, drag.start);
+        if (!free) delta = v(roundTo(delta.x, grid), roundTo(delta.y, grid));
+        applyDrag((dd) => withExtension(dd, drag.id, (ex) => ({ ...ex, x: Math.round(drag.orig.x + delta.x), y: Math.round(drag.orig.y + delta.y) })));
+        break;
+      }
+      case 'roof-ext-side': {
+        const ex = drag.orig;
+        const r = rad(ex.rotation);
+        const lc = rot(sub(p, v(ex.x, ex.y)), -r);
+        const step = free ? 1 : 50;
+        // Sides: 0 = +x, 1 = −x, 2 = +y, 3 = −y (in the extension's own frame). The opposite side stays put.
+        let [x0, x1, y0, y1] = [-ex.width / 2, ex.width / 2, -ex.depth / 2, ex.depth / 2];
+        if (drag.side === 0) x1 = Math.max(x0 + 300, x0 + roundTo(lc.x - x0, step));
+        if (drag.side === 1) x0 = Math.min(x1 - 300, x1 - roundTo(x1 - lc.x, step));
+        if (drag.side === 2) y1 = Math.max(y0 + 300, y0 + roundTo(lc.y - y0, step));
+        if (drag.side === 3) y0 = Math.min(y1 - 300, y1 - roundTo(y1 - lc.y, step));
+        const c = add(v(ex.x, ex.y), rot(v((x0 + x1) / 2, (y0 + y1) / 2), r));
+        applyDrag((dd) => withExtension(dd, drag.id, (e2) => ({ ...e2, x: Math.round(c.x), y: Math.round(c.y), width: Math.round(x1 - x0), depth: Math.round(y1 - y0) })));
+        break;
+      }
       case 'dimension': {
         let delta = sub(p, drag.start);
         if (!free) delta = v(roundTo(delta.x, grid), roundTo(delta.y, grid));
@@ -607,6 +697,7 @@ export default function PlanView() {
     const ds = dragRef.current;
     dragRef.current = null;
     setDragKind(null);
+    setItemGuides([]);
     if (svgRef.current?.hasPointerCapture(e.pointerId)) svgRef.current.releasePointerCapture(e.pointerId);
     if (!ds) return;
     if (ds.drag.kind === 'rect') {
@@ -908,6 +999,19 @@ export default function PlanView() {
   };
 
   const wallsById = useMemo(() => new Map(design.walls.map((w) => [w.id, w])), [design.walls]);
+  // Door stops: where each hinged door's stop sits (on the floor, or sticking out of a wall).
+  const doorStops = useMemo(() => {
+    const sides = exteriorSides(design.walls).map;
+    return design.openings
+      .filter((o) => o.kind === 'door' || o.kind === 'double_door')
+      .flatMap((o) => {
+        const w = wallsById.get(o.wallId);
+        const sd = sides.get(o.wallId);
+        const shown = effectiveDoor(o, design, !(sd?.pos || sd?.neg)); // interior doors may use the house door stop
+        if (!w || !shown.doorStop || shown.doorStop.mount === 'none') return [];
+        return doorStopLayout(design, shown, w).flatMap((l, i) => (l.stop ? [{ key: `${o.id}-${i}`, id: o.id, stop: l.stop }] : []));
+      });
+  }, [design, wallsById]);
   const itemsSorted = useMemo(
     () => [...design.items].sort((a, b) => (a.type === 'rug' ? -1 : 0) - (b.type === 'rug' ? -1 : 0) || a.elevation - b.elevation),
     [design.items],
@@ -980,7 +1084,7 @@ export default function PlanView() {
   if (sideTarget) {
     const { o, wall, ghost } = sideTarget;
     const f = wallFrame(wall);
-    const g = openingSideGaps(o, wall, design.walls);
+    const g = openingSideGaps(o, wall, design.walls, design.openings);
     const mid = add(wall.start, mul(f.u, f.length / 2));
     // Draw on the side facing the middle of the plan (usually inside the room).
     const side = dist(add(mid, f.n), planCentre) <= dist(sub(mid, f.n), planCentre) ? 1 : -1;
@@ -988,9 +1092,9 @@ export default function PlanView() {
     const at = (along: number) => add(add(wall.start, mul(f.u, along)), off);
     let ang = deg(f.angle);
     if (ang > 90.01 || ang < -89.99) ang += 180;
-    for (const [key, from, to, face] of [
-      ['left', g.leftFace, g.a, g.leftFace],
-      ['right', g.b, g.rightFace, g.rightFace],
+    for (const [key, from, to, face, next] of [
+      ['left', g.leftFace, g.a, g.leftFace, g.leftTo],
+      ['right', g.b, g.rightFace, g.rightFace, g.rightTo],
     ] as const) {
       const value = to - from;
       if (value < 0.5) continue;
@@ -1018,7 +1122,7 @@ export default function PlanView() {
             data-y={m.y}
             transform={`rotate(${ang} ${m.x} ${m.y})`}
           >
-            {!ghost && <title>Distance to the wall — click to set it exactly</title>}
+            {!ghost && <title>{openingGapTitle(next)} — click to set it exactly</title>}
             <rect x={m.x - lw / 2} y={m.y - fs * 0.8} width={lw} height={fs * 1.6} rx={px(4)} />
             <text x={m.x} y={m.y} fontSize={fs} dominantBaseline="middle" textAnchor="middle">
               {label}
@@ -1149,6 +1253,50 @@ export default function PlanView() {
         </text>,
       );
     }
+  } else if (selection?.kind === 'roof' && design.roof && roofRes && !('error' in roofRes)) {
+    // Extensions: drag to move; the selected one gets a handle on each side.
+    for (const ex of design.roof.extensions ?? []) {
+      const cs = extCorners(ex);
+      const on = selection.id === ex.id;
+      handles.push(
+        <polygon key={ex.id} points={cs.map((q) => `${q.x},${q.y}`).join(' ')} className={on ? 'roof-ext on' : 'roof-ext'} data-kind="roof-ext" data-id={ex.id}>
+          <title>Roof extension — drag to move · Del to remove</title>
+        </polygon>,
+      );
+      if (on) {
+        const r = rad(ex.rotation);
+        const sides = [v(ex.width / 2, 0), v(-ex.width / 2, 0), v(0, ex.depth / 2), v(0, -ex.depth / 2)];
+        sides.forEach((s, i) => {
+          const q = add(v(ex.x, ex.y), rot(s, r));
+          handles.push(
+            <rect key={`${ex.id}-${i}`} x={q.x - hr} y={q.y - hr} width={hr * 2} height={hr * 2} className="handle" data-kind="handle" data-handle="roof-ext-side" data-id={ex.id} data-side={i}>
+              <title>Drag to resize</title>
+            </rect>,
+          );
+        });
+        handles.push(
+          <text key={`${ex.id}-lbl`} x={ex.x} y={ex.y} fontSize={fs} textAnchor="middle" dominantBaseline="middle" className="sel-label">
+            {`${formatMm(ex.width)} × ${formatMm(ex.depth)}`}
+          </text>,
+        );
+      }
+    }
+    // Arrows on the roof's edges: drag one out to stretch the roof over a patio.
+    const o = Math.max(0, design.roof.overhang);
+    roofRes.outline.forEach((e, i) => {
+      if (dist(e.a, e.b) < 1000) return;
+      const m = add(mul(add(e.a, e.b), 0.5), mul(e.n, o + px(14)));
+      const t = v(-e.n.y, e.n.x);
+      const s = px(9);
+      const tip = add(m, mul(e.n, s));
+      const l = add(sub(m, mul(e.n, s * 0.6)), mul(t, s));
+      const rr = sub(sub(m, mul(e.n, s * 0.6)), mul(t, s));
+      handles.push(
+        <polygon key={`pull-${i}`} points={`${tip.x},${tip.y} ${l.x},${l.y} ${rr.x},${rr.y}`} className="handle roof-pull" data-kind="handle" data-handle="roof-pull" data-index={i}>
+          <title>Drag out to extend the roof (e.g. over a patio)</title>
+        </polygon>,
+      );
+    });
   } else if (selection?.kind === 'room') {
     const r = design.rooms.find((x) => x.id === selection.id);
     r?.points.forEach((p, i) =>
@@ -1232,11 +1380,14 @@ export default function PlanView() {
           <pattern id="grid-minor" width={minor} height={minor} patternUnits="userSpaceOnUse">
             <path d={`M ${minor} 0 L 0 0 0 ${minor}`} fill="none" stroke="var(--grid-minor)" strokeWidth={px(1)} />
           </pattern>
-          {[...new Set(design.rooms.map((r) => ((Math.round(floorOf(design, r).direction) % 180) + 180) % 180))].map((dir) => (
-            <pattern key={dir} id={`boards-${dir}`} width={600} height={150} patternUnits="userSpaceOnUse" patternTransform={`rotate(${dir})`}>
-              <line x1={0} y1={0} x2={600} y2={0} stroke="#6b5a48" strokeOpacity={0.25} strokeWidth={px(1)} />
-            </pattern>
-          ))}
+          {[...new Set(design.rooms.map((r) => boardPattern(floorOf(design, r))))].map((key) => {
+            const [dir, step] = key.split('-').map(Number);
+            return (
+              <pattern key={key} id={`boards-${key}`} width={600} height={step} patternUnits="userSpaceOnUse" patternTransform={`rotate(${dir})`}>
+                <line x1={0} y1={0} x2={600} y2={0} stroke="#6b5a48" strokeOpacity={0.25} strokeWidth={px(1)} />
+              </pattern>
+            );
+          })}
           <pattern id="grid-major" width={major} height={major} patternUnits="userSpaceOnUse">
             <rect width={major} height={major} fill="url(#grid-minor)" />
             <path d={`M ${major} 0 L 0 0 0 ${major}`} fill="none" stroke="var(--grid-major)" strokeWidth={px(1)} />
@@ -1248,12 +1399,11 @@ export default function PlanView() {
             {design.rooms.map((r) => {
               const fl = floorOf(design, r);
               const pts = r.points.map((p) => `${p.x},${p.y}`).join(' ');
-              const dir = ((Math.round(fl.direction) % 180) + 180) % 180;
               return (
                 <g key={r.id}>
                   <polygon points={pts} fill={fl.color} className={`room${isSel('room', r.id) ? ' selected' : ''}`} data-kind="room" data-id={r.id} />
                   {/* Faint board lines showing which way the floor runs */}
-                  {DIRECTIONAL_FLOORS.has(fl.finish) && <polygon points={pts} fill={`url(#boards-${dir})`} className="room-boards" />}
+                  {DIRECTIONAL_FLOORS.has(fl.finish) && <polygon points={pts} fill={`url(#boards-${boardPattern(fl)})`} className="room-boards" />}
                 </g>
               );
             })}
@@ -1292,8 +1442,18 @@ export default function PlanView() {
             })}
             {design.settings.showRoomDimensions && roomDims}
           </g>
+          <g className="door-stops">
+            {doorStops.map(({ key, stop }) => {
+              const r = DOOR_STOP_SIZE.diameter / 2;
+              if (stop.mount === 'floor') return <circle key={key} cx={stop.at.x} cy={stop.at.y} r={r} />;
+              const n = v(-stop.dir.y, stop.dir.x);
+              const end = add(stop.at, mul(stop.dir, DOOR_STOP_SIZE.projection));
+              const pts = [add(stop.at, mul(n, r)), add(end, mul(n, r)), sub(end, mul(n, r)), sub(stop.at, mul(n, r))];
+              return <polygon key={key} points={pts.map((q) => `${q.x},${q.y}`).join(' ')} />;
+            })}
+          </g>
           <g className="dims">{design.dimensions.map((m) => dimLine(m.a, m.b, m.id, { id: m.id, selected: isSel('dimension', m.id) }))}</g>
-          {selection?.kind === 'roof' && design.roof && <RoofOverlay design={design} fs={fs} />}
+          {roofRes && <RoofOverlay r={roofRes} fs={fs} />}
           {design.settings.showClearances && (
             <g className="gaps">
               {gapEls}
@@ -1303,6 +1463,11 @@ export default function PlanView() {
           )}
           <g className="handles">{handles}</g>
           <g className="preview">{preview}</g>
+          <g className="align-guides">
+            {(dragKind === 'item' ? itemGuides : (ghostItemSnap(mouse, mods.shift)?.guides ?? [])).map(([g1, g2], i) => (
+              <line key={i} x1={g1.x} y1={g1.y} x2={g2.x} y2={g2.y} />
+            ))}
+          </g>
           {walker && <WalkerMarker x={walker.x} y={walker.y} yaw={walker.yaw} px={px} />}
         </g>
       </svg>
@@ -1434,9 +1599,8 @@ function LengthEditor(props: { left: number; top: number; initial: string; onCom
   );
 }
 
-function RoofOverlay({ design, fs }: { design: Design; fs: number }) {
-  const r = useMemo(() => (design.roof ? generateRoof(design, design.roof) : null), [design]);
-  if (!r || 'error' in r) return null;
+function RoofOverlay({ r, fs }: { r: RoofOutcome; fs: number }) {
+  if ('error' in r) return null;
   const pts = r.eaves.flat();
   const cx = (Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2;
   const cy = (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2;

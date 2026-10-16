@@ -9,7 +9,7 @@ import { store, useStore } from '../store';
 export default function Catalog() {
   const tool = useStore((s) => s.tool);
   const [q, setQ] = useState('');
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ 'LG fridges': true }); // long list: open on demand
   const match = (name: string, cat: string) => {
     const s = q.trim().toLowerCase();
     return !s || name.toLowerCase().includes(s) || cat.toLowerCase().includes(s);

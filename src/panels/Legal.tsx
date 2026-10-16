@@ -230,8 +230,8 @@ function Privacy() {
         </li>
         <li>
           <b>YouTube.</b> The walk-through music is played by YouTube’s embedded player. When it loads, YouTube (Google) may set cookies
-          and collect information under Google’s privacy policy. It only loads when you start a walk-through with music on, or type a
-          certain cheat code. Turn the music off in the walk-through panel and the player isn’t loaded.
+          and collect information under Google’s privacy policy. It only loads when you press play on the music in the walk-through, or type a
+          certain cheat code. Until then the player isn’t loaded.
         </li>
         <li>
           <b>Product photos.</b> When a product card opens, its photo is loaded straight from the brand’s or retailer’s website
@@ -258,7 +258,7 @@ function Privacy() {
 /** Brands that appear in Home Designer, and what they're used for. */
 const BRANDS: { name: string; url: string; what: string }[] = [
   { name: 'ABI Interiors', url: 'https://www.abiinteriors.com.au/', what: 'Bathroom, kitchen and laundry fixtures and tapware' },
-  { name: 'Bunnings (Pinnacle)', url: 'https://www.bunnings.com.au/', what: 'Garage shelving' },
+  { name: 'Bunnings (Pinnacle)', url: 'https://www.bunnings.com.au/', what: 'Garage shelving; Kaboodle product details' },
   { name: 'COLORBOND® steel (BlueScope)', url: 'https://colorbond.com/', what: 'Roof and garage door colours' },
   { name: 'Corinthian Doors', url: 'https://www.corinthian.com.au/', what: 'Internal and entrance door designs' },
   { name: 'Dulux', url: 'https://www.dulux.com.au/', what: 'Paint colours' },
@@ -268,6 +268,8 @@ const BRANDS: { name: string; url: string; what: string }[] = [
   { name: 'Jinko Solar', url: 'https://jinkosolar.com.au/', what: 'Solar panels' },
   { name: 'SunPower (Maxeon)', url: 'https://www.sunpowerglobal.com/au', what: 'Solar panels' },
   { name: 'Trina Solar', url: 'https://www.trinasolar.com/au/', what: 'Solar panels' },
+  { name: 'Kaboodle Kitchen', url: 'https://www.kaboodle.com.au/', what: 'Kitchen cabinets, doors, benchtops and handles (kitchen designer)' },
+  { name: 'LG Electronics Australia', url: 'https://www.lg.com/au/', what: 'French door fridges' },
   { name: 'Hume Doors', url: 'https://www.humedoors.com.au/', what: 'Entrance and internal door designs' },
   { name: 'Panasonic', url: 'https://www.panasonic.com/au/', what: 'Split system air conditioner' },
   { name: 'Porter’s Paints', url: 'https://www.porterspaints.com/', what: 'Paint colours' },
@@ -318,7 +320,7 @@ function Disclosure() {
 
       <h3>Product details and colours</h3>
       <p>
-        Product names, sizes, colours and prices come from each brand’s public website at the time they were added, and may since have
+        Product names, sizes and colours come from each brand’s public website at the time they were added, and may since have
         changed. 3D models are approximations, and screen colours are approximate. Check with the brand or retailer before you buy.
         All trademarks belong to their owners.
       </p>

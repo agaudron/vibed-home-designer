@@ -1,5 +1,7 @@
 import { add, clampOpeningOffset, dot, mul, rad, sidelights, sub, v, wallExtensions, wallFrame } from './geometry';
 import type { Design, Opening, Vec, Wall } from './types';
+import { DOOR_STOP_SIZE } from './doorStops';
+import { ABI_HANDLE_BY_SLUG } from './doorHandles';
 
 /**
  * Door handles, and whether a hinged door can open without its leaf or handles hitting a wall or furniture.
@@ -9,12 +11,13 @@ import type { Design, Opening, Vec, Wall } from './types';
  * A door should open to at least 90°: "Fix" finds the smallest slide along its wall that allows that.
  */
 
-export type HandleType = 'lever' | 'knob' | 'pull' | 'flush' | 'none';
+export type HandleType = 'lever' | 'knob' | 'pull' | 'halfmoon' | 'flush' | 'none';
 
 export const HANDLES: Record<HandleType, { name: string; projection: number }> = {
   lever: { name: 'Lever', projection: 65 },
   knob: { name: 'Knob', projection: 60 },
   pull: { name: 'Pull handle (D pull)', projection: 75 },
+  halfmoon: { name: 'Half-moon pull', projection: 50 },
   flush: { name: 'Flush pull', projection: 8 },
   none: { name: 'None', projection: 0 },
 };
@@ -27,11 +30,13 @@ export const HANDLE_FINISHES: { hex: string; name: string }[] = [
   { hex: '#f2f2ef', name: 'White' },
 ];
 
-export const HANDLE_DEFAULT = { type: 'lever' as HandleType, height: 1000, finish: '#b8bcc0' };
+export const HANDLE_DEFAULT = { type: 'lever' as HandleType, height: 1000, finish: '#b8bcc0', length: 320 };
 
-/** The handle on this door (with defaults filled in). */
-export function doorHandle(o: Opening) {
-  return { ...HANDLE_DEFAULT, ...(o.handle ?? {}) };
+/** The handle on this door (with defaults filled in; an ABI product sets its type, finish and length). */
+export function doorHandle(o: Opening): typeof HANDLE_DEFAULT & { product?: string } {
+  const h = { ...HANDLE_DEFAULT, ...(o.handle ?? {}) };
+  const p = h.product ? ABI_HANDLE_BY_SLUG[h.product] : undefined;
+  return p ? { ...h, type: p.kind, finish: p.hex, length: p.length || h.length } : h;
 }
 
 /** Distance from the latch edge of the leaf to the handle's centre. */
@@ -82,7 +87,7 @@ export interface LeafCheck {
   /** How far it opens (degrees) before something is hit; 180 if nothing. */
   maxAngle: number;
   /** What it hits first, and with which part. */
-  hit: { what: string; part: 'leaf' | 'handle'; at: Vec } | null;
+  hit: { what: string; part: 'leaf' | 'handle'; at: Vec; wallId?: string } | null;
 }
 
 /** The hinged leaves of a door: hinge position along the opening (from its centre), direction to the latch, width. */
@@ -127,12 +132,78 @@ export function checkDoor(d: Design, o: Opening, w: Wall, offset = o.offset, upT
       if (p > 0) for (const side of [-1, 1]) add(lw - BACKSET, side * (LEAF_T / 2 + p), 'handle');
       for (const { p: q, part } of pts) {
         const ob = obs.find((x) => inside(x, q));
-        if (ob) return { maxAngle: deg - 3, hit: { what: ob.name.startsWith('wall:') ? 'a wall' : ob.name, part, at: q } };
+        if (ob) {
+          const wallId = ob.name.startsWith('wall:') ? ob.name.slice(5) : undefined;
+          return { maxAngle: deg - 3, hit: { what: wallId ? 'a wall' : ob.name, part, at: q, wallId } };
+        }
       }
     }
     return { maxAngle: 180, hit: null };
   });
 }
+
+export interface DoorStopPlace {
+  mount: 'wall' | 'floor';
+  /** Plan position of the stop's base: on the wall face, or its centre on the floor. */
+  at: Vec;
+  /** Wall stops: the way it sticks out from the wall (plan). */
+  dir: Vec;
+  /** Height of a wall stop's centre (mm). */
+  height: number;
+  /** Asked for a wall stop but there's no wall where the door opens to, so it's on the floor. */
+  fallback: boolean;
+}
+
+/**
+ * How far each leaf of a hinged door opens, and where its door stop goes (if it has one).
+ * - No stop: fully (90°), or until just before it would hit something.
+ * - Wall stop: on the wall the door swings back to (up to 180°), at handle height; the door rests on it.
+ * - Floor stop: on the floor where the latch edge rests when open 90° (or before it would hit something).
+ */
+export function doorStopLayout(d: Design, o: Opening, w: Wall): { angle: number; stop: DoorStopPlace | null }[] {
+  const mount = o.doorStop?.mount === 'none' ? undefined : o.doorStop?.mount;
+  const checks = checkDoor(d, o, w, o.offset, mount === 'wall' ? 180 : 90);
+  const f = wallFrame(w);
+  const c = clampOpeningOffset(o, f.length);
+  const s = o.flip ? -1 : 1;
+  const ht = w.thickness / 2;
+  const world = (x: number, y: number) => add(add(w.start, mul(f.u, c + x)), mul(f.n, y));
+  const reach = DOOR_STOP_REACH;
+  return doorLeaves(o).map(({ hx, dir, lw }, i) => {
+    const ch = checks[i];
+    const basic = Math.max(5, Math.min(90, ch.maxAngle));
+    if (!mount) return { angle: basic, stop: null };
+    const hinge = world(hx, s * ht);
+    if (mount === 'wall' && ch.hit?.wallId) {
+      const hw = d.walls.find((x) => x.id === ch.hit!.wallId);
+      if (hw) {
+        const hf = wallFrame(hw);
+        const along = dot(sub(ch.hit.at, hw.start), hf.u);
+        const side = dot(sub(hinge, hw.start), hf.n) >= 0 ? 1 : -1;
+        const out = mul(hf.n, side);
+        const at = add(add(hw.start, mul(hf.u, along)), mul(out, hw.thickness / 2));
+        // The door now rests on the end of the stop, a little short of the wall.
+        const r = Math.max(200, Math.hypot(at.x - hinge.x, at.y - hinge.y));
+        const angle = Math.max(5, ch.maxAngle + 3 - (Math.atan2(reach + LEAF_T / 2, r) * 180) / Math.PI);
+        const handle = doorHandle(o);
+        const height = handle.type === 'none' || handle.type === 'flush' ? 150 : handle.height;
+        return { angle, stop: { mount: 'wall', at, dir: out, height, fallback: false } };
+      }
+    }
+    // On the floor, against the face of the leaf that leads as it opens, near the latch edge.
+    const a = (basic * Math.PI) / 180;
+    const dx = dir * Math.cos(a);
+    const dy = s * Math.sin(a);
+    const lead = dir * s; // which face leads (along the leaf's normal)
+    const off = lead * (LEAF_T / 2 + DOOR_STOP_SIZE.diameter / 2);
+    const along = lw - 70;
+    const at = world(hx + dx * along - dy * off, s * ht + dy * along + dx * off);
+    return { angle: basic, stop: { mount: 'floor', at, dir: v(0, 0), height: 0, fallback: mount === 'wall' } };
+  });
+}
+
+/** How far a stop holds the door off the wall (its projection). */
+const DOOR_STOP_REACH = DOOR_STOP_SIZE.projection;
 
 /** True if every leaf can open to at least 90°. */
 export function opensFully(d: Design, o: Opening, w: Wall, offset = o.offset) {

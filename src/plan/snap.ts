@@ -143,18 +143,25 @@ export interface ItemSnap {
   y: number;
   rotation: number;
   wallId: string | null;
+  /** Alignment lines to show (world coordinates): the edges it lined up with. */
+  guides: [Vec, Vec][];
 }
 
+/** Rotation in [0, 360). */
+const norm360 = (a: number) => ((a % 360) + 360) % 360;
+
 /**
- * Snap an item being placed/moved: back it onto a nearby wall (facing into the room),
- * then slide it flush against neighbouring items or perpendicular walls.
+ * Snap an item being placed/moved: back it onto a nearby wall (facing into the room), square it up to a
+ * neighbouring item when it's out in the room, then line its sides up with neighbours / perpendicular walls and
+ * (away from walls) its front and back with neighbours'.
  */
 export function snapItem(design: Design, it: Placeable, raw: Vec, opts: { tol: number; grid: number; free: boolean }): ItemSnap {
-  if (opts.free) return { x: Math.round(raw.x), y: Math.round(raw.y), rotation: it.rotation, wallId: null };
+  if (opts.free) return { x: Math.round(raw.x), y: Math.round(raw.y), rotation: it.rotation, wallId: null, guides: [] };
 
   let pos = raw;
   let rotation = it.rotation;
   let wallId: string | null = null;
+  const others = design.items.filter((o) => o.id !== it.id && o.type !== 'rug');
 
   if (!FREE_STANDING.has(it.type)) {
     let bestScore = Infinity;
@@ -174,51 +181,88 @@ export function snapItem(design: Design, it: Placeable, raw: Vec, opts: { tol: n
         wallId = w.id;
       }
     }
+    // Out in the room: square up to the nearest neighbour (keeping roughly the way it faces).
+    if (!wallId) {
+      const reach = Math.max(opts.tol * 3, 300);
+      let near: Item | null = null;
+      let nearD = reach;
+      for (const o of others) {
+        const dd = dist(raw, v(o.x, o.y)) - Math.hypot(o.width, o.depth) / 2 - Math.hypot(it.width, it.depth) / 2;
+        if (dd < nearD) {
+          nearD = dd;
+          near = o;
+        }
+      }
+      if (near) {
+        const steps = [0, 90, 180, 270].map((k) => norm360(near!.rotation + k));
+        const off = (a: number) => Math.abs(((a - rotation + 540) % 360) - 180);
+        rotation = steps.reduce((a, b) => (off(b) < off(a) ? b : a));
+      }
+    }
   }
 
   if (!wallId) pos = { x: roundTo(pos.x, opts.grid), y: roundTo(pos.y, opts.grid) };
 
-  // Edge snapping along the item's width axis.
+  // Line up edges. a = the item's width axis, b = its depth axis (front is +b).
   const r = rad(rotation);
   const a = v(Math.cos(r), Math.sin(r));
   const b = v(-Math.sin(r), Math.cos(r));
   const ca = dot(pos, a);
   const cb = dot(pos, b);
-  const bMin = cb - it.depth / 2;
-  const bMax = cb + it.depth / 2;
-  const stops: number[] = [];
-  const addRect = (corners: Vec[]) => {
+  const span = (corners: Vec[]) => {
     const pa = corners.map((c) => dot(c, a));
     const pb = corners.map((c) => dot(c, b));
-    const lo = Math.min(...pb);
-    const hi = Math.max(...pb);
-    if (hi < bMin - 20 || lo > bMax + 20) return;
-    stops.push(Math.min(...pa), Math.max(...pa));
+    return { a0: Math.min(...pa), a1: Math.max(...pa), b0: Math.min(...pb), b1: Math.max(...pb) };
   };
-  for (const o of design.items) {
-    if (o.id === it.id || o.type === 'rug') continue;
-    addRect(itemCorners(o));
-  }
+  const rects = others.map((o) => span(itemCorners(o)));
+  const wallRects: ReturnType<typeof span>[] = [];
   for (const w of design.walls) {
     const f = wallFrame(w);
     if (Math.abs(dot(f.u, a)) > 0.1) continue; // only walls perpendicular to the width axis
     const h = mul(f.n, w.thickness / 2);
-    addRect([add(w.start, h), sub(w.start, h), add(w.end, h), sub(w.end, h)]);
+    wallRects.push(span([add(w.start, h), sub(w.start, h), add(w.end, h), sub(w.end, h)]));
   }
-  let bestDelta = 0;
-  let bestAbs = opts.tol;
-  for (const s of stops) {
-    for (const edge of [ca - it.width / 2, ca + it.width / 2]) {
-      const dlt = s - edge;
-      if (Math.abs(dlt) < bestAbs) {
-        bestAbs = Math.abs(dlt);
-        bestDelta = dlt;
-      }
-    }
-  }
-  pos = add(pos, mul(a, bestDelta));
+  const near = (lo: number, hi: number, l2: number, h2: number, slack: number) => hi >= l2 - slack && lo <= h2 + slack;
 
-  return { x: Math.round(pos.x), y: Math.round(pos.y), rotation, wallId };
+  /** Best snap of our edges [lo, hi] to any stop, within tolerance. */
+  const pick = (lo: number, hi: number, stops: { at: number; from: number; to: number }[]) => {
+    let best: { delta: number; at: number; from: number; to: number } | null = null;
+    for (const st of stops)
+      for (const edge of [lo, hi]) {
+        const dl = st.at - edge;
+        if (Math.abs(dl) < opts.tol && (!best || Math.abs(dl) < Math.abs(best.delta))) best = { delta: dl, ...st };
+      }
+    return best;
+  };
+
+  // Sides: against neighbours beside it (overlapping in depth) or lined up with their sides.
+  const bLo = cb - it.depth / 2;
+  const bHi = cb + it.depth / 2;
+  const sideStops = [...rects, ...wallRects]
+    .filter((q) => near(bLo, bHi, q.b0, q.b1, Math.max(20, opts.tol)))
+    .flatMap((q) => [q.a0, q.a1].map((at) => ({ at, from: q.b0, to: q.b1 })));
+  const sa = pick(ca - it.width / 2, ca + it.width / 2, sideStops);
+  const da = sa?.delta ?? 0;
+
+  // Front / back: away from walls, line up with neighbours beside it (touching or overlapping along the width).
+  let db = 0;
+  let sb: ReturnType<typeof pick> = null;
+  if (!wallId) {
+    const aLo = ca + da - it.width / 2;
+    const aHi = ca + da + it.width / 2;
+    const fbStops = rects.filter((q) => near(aLo, aHi, q.a0, q.a1, Math.max(20, opts.tol))).flatMap((q) => [q.b0, q.b1].map((at) => ({ at, from: q.a0, to: q.a1 })));
+    sb = pick(bLo, bHi, fbStops);
+    db = sb?.delta ?? 0;
+  }
+  pos = add(pos, add(mul(a, da), mul(b, db)));
+
+  // Guides along the edges it lined up with, spanning both items.
+  const P = (pa: number, pb: number) => add(mul(a, pa), mul(b, pb));
+  const guides: [Vec, Vec][] = [];
+  if (sa) guides.push([P(sa.at, Math.min(sa.from, bLo + db) - 150), P(sa.at, Math.max(sa.to, bHi + db) + 150)]);
+  if (sb) guides.push([P(Math.min(sb.from, ca + da - it.width / 2) - 150, sb.at), P(Math.max(sb.to, ca + da + it.width / 2) + 150, sb.at)]);
+
+  return { x: Math.round(pos.x), y: Math.round(pos.y), rotation, wallId, guides };
 }
 
 /** Find the wall closest to a point (for placing doors/windows). */

@@ -96,9 +96,18 @@ export interface Opening {
   design?: DoorDesign;
   glass?: 'clear' | 'translucent' | 'cathedral' | 'reeded' | 'frosted' | 'grey';
   /** Hinged doors: handle type, height to its centre (mm) and finish colour. */
-  handle?: { type?: 'lever' | 'knob' | 'pull' | 'flush' | 'none'; height?: number; finish?: string };
+  handle?: DoorHandleSpec;
   /** Curtains or blinds on the inside of a window / glass door. */
   dressing?: WindowDressing;
+  /** Trim (architraves) round a hinged door or window; unset fields follow the house settings. */
+  trim?: { type?: SkirtingType; width?: number };
+  /**
+   * Hinged doors: a door stop (ABI product slug), on the wall the door opens back to or on the floor; 'none' = no
+   * stop even if the house has one. Unset on an interior door = the house door stop.
+   */
+  doorStop?: DoorStop;
+  /** Windows: a sill (with trim under it) or, when false, no sill and the trim runs right round. Default true. */
+  windowSill?: boolean;
   /** Stacker doors: number of sliding panels (2–4) and the width of each panel. */
   panels?: number;
   panelWidth?: number;
@@ -128,6 +137,38 @@ export interface Item {
   options?: Record<string, string | number>;
 }
 
+/**
+ * A hinged door's handle. `product` is an ABI Interiors handle (slug); it sets the type, finish and pull length.
+ * Unset on an interior door = the house handle.
+ */
+export interface DoorHandleSpec {
+  type?: 'lever' | 'knob' | 'pull' | 'halfmoon' | 'flush' | 'none';
+  height?: number;
+  finish?: string;
+  /** Pull handles: length (mm). */
+  length?: number;
+  product?: string;
+}
+
+export interface DoorStop {
+  mount: 'wall' | 'floor' | 'none';
+  product: string;
+}
+
+export interface KitchenStyle {
+  door: string;
+  benchtop: string;
+  handle: string;
+}
+
+/** Flooring sizes (mm): board / plank width, or tile width × length and grout joint width. */
+export interface FloorSize {
+  board?: number;
+  tileW?: number;
+  tileL?: number;
+  grout?: number;
+}
+
 export type FloorFinish = 'timber' | 'hybrid' | 'tile' | 'large_tile' | 'carpet' | 'concrete';
 
 /** Inside wall lining. */
@@ -148,8 +189,12 @@ export interface Room {
   cornice?: CorniceType | null;
   /** Skirting for this room; null/undefined = the house skirting. */
   skirting?: SkirtingType | null;
+  /** Kitchen designer: the Kaboodle door, benchtop and handle chosen for this kitchen (names from the range). */
+  kitchen?: KitchenStyle;
   /** Direction the boards run in this room (degrees, 0 = left–right on the plan); null = house direction. */
   floorDirection?: number | null;
+  /** Board / tile sizes in this room (any left out follow the house flooring); null = the house sizes. */
+  floorSize?: FloorSize | null;
   /** Wall lining in this room; null/undefined = the house lining. */
   wallLining?: LiningType | null;
 }
@@ -179,11 +224,17 @@ export interface Settings {
   /** Ceiling height; null = height of the tallest outside wall. */
   ceilingHeight: number | null;
   /** House flooring (rooms can override). */
-  flooring: { finish: FloorFinish; color: string; direction?: number };
+  flooring: { finish: FloorFinish; color: string; direction?: number; size?: FloorSize };
   /** House cornice and skirting (rooms can override). */
   cornice: CorniceType;
   skirting: SkirtingType;
   skirtingColor: string;
+  /** Width of the trim (architraves) round windows, mm; 0 = none. Unset = 66 mm. */
+  windowTrim?: number;
+  /** House handle for interior hinged doors (doors without their own handle follow it). */
+  interiorHandle?: DoorHandleSpec | null;
+  /** House door stop for interior hinged doors (doors without their own door stop setting follow it). */
+  interiorDoorStop?: DoorStop | null;
   /** House style for interior doors (doors on inside walls without their own design follow it). */
   interiorDoor?: { design: DoorDesign; glass?: Opening['glass']; color: string; jamb: 'single' | 'double' };
   /** Inside wall lining for the house (rooms can override). */
@@ -219,6 +270,20 @@ export interface Roof {
   soffit?: { show: boolean; color: string };
   /** Fascia board colour; unset = matches the gutters (or the roof with no gutters). */
   fasciaColor?: string;
+  /** Extra areas the roof is pulled out over (patios, carports…), as plan rectangles. */
+  extensions?: RoofExtension[];
+}
+
+/** A rectangle of plan the main roof also covers, as if its outer edge were an outside wall. */
+export interface RoofExtension {
+  id: string;
+  /** Centre (mm). */
+  x: number;
+  y: number;
+  width: number;
+  depth: number;
+  /** Degrees. */
+  rotation: number;
 }
 
 export type RoofMaterial = 'colorbond' | 'concrete_tile' | 'terracotta_tile';
@@ -253,7 +318,7 @@ export type Tool =
   | { kind: 'room' }
   | { kind: 'floor' }
   | { kind: 'measure' }
-  | { kind: 'place'; itemType: string }
+  | { kind: 'place'; itemType: string; preset?: Partial<Item> }
   | { kind: 'opening'; catalogId: string };
 
 export type ViewMode = '2d' | 'split' | '3d';

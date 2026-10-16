@@ -6,24 +6,26 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { deleteSelection, moveWallPoints, newItem, newOpening, raiseSelection, rotateSelection, wallMovePoints } from '../actions';
-import { faceColor, add, clampOpeningOffset, effectiveDoor, effectiveOpenings, evalExpr, mul, roundTo, wallExtensions, wallFrame, wallSpans } from '../geometry';
+import { deleteSelection, moveWallPoints, newItem, newOpening, placementItem, raiseSelection, rotateSelection, wallMovePoints } from '../actions';
+import { faceColor, add, clampOpeningOffset, effectiveDoor, effectiveOpenings, evalExpr, itemCorners, mul, roundTo, wallExtensions, wallFrame, wallSpans } from '../geometry';
 import { snapItem } from '../plan/snap';
 import { QUALITIES, setQuality, store, useStore } from '../store';
 import type { RenderQuality } from '../store';
 import { exteriorSides, facadeCanvas, FINISHES } from '../facade';
 import { generateRoof, roofPlate } from '../roof';
-import { DADO_HEIGHT, floorOf, liningRuns, openingRects, trimRuns } from '../trims';
+import { DADO_HEIGHT, floorOf, liningRuns, openingRects, openingTrim, trimRuns } from '../trims';
 import type { TrimRun } from '../trims';
 import type { RoofFace } from '../roof';
-import type { Design, Facade, FloorFinish, Item, Opening, Selection, Wall } from '../types';
+import type { Design, Facade, FloorFinish, FloorSize, Item, Opening, Selection, Wall } from '../types';
 import { buildItem, buildOpening, Builder } from './builders';
 import type { ItemContext, MatFn, MatOpts } from './builders';
 import { buildMeasures, measuresForItem } from './measure3d';
 import { doorwayBox, EYE_HEIGHT, floorAt, moveWithCollisions, startPose, walkWorld } from './walk';
 import type { Box, WalkWorld } from './walk';
 import { isTyping } from '../keyboard';
-import { clearOffset } from '../doorClearance';
+import { clearOffset, doorStopLayout } from '../doorClearance';
+import type { DoorStopPlace } from '../doorClearance';
+import { DOOR_STOP_SIZE, doorStopProduct } from '../doorStops';
 import type { MeasureLabel, Measures } from './measure3d';
 import { gauss, Mess, Shotgun } from './shotgun';
 import { Music } from './music';
@@ -77,13 +79,15 @@ export default function Scene3D() {
     }
   });
   const [ytPaused, setYtPaused] = useState(false);
-  const [ytStatus, setYtStatus] = useState<'loading' | 'playing' | 'stuck'>('loading');
+  // Music never starts by itself: nothing plays (and YouTube's player isn't loaded) until you press play or M.
+  const [musicStarted, setMusicStarted] = useState(false);
+  const [ytStatus, setYtStatus] = useState<'loading' | 'playing' | 'paused' | 'stuck'>('loading');
   const [ownTrack, setOwnTrack] = useState<{ url: string; name: string } | null>(null);
   const ownAudio = useRef<HTMLAudioElement | null>(null);
   const ytFrame = useRef<HTMLIFrameElement>(null);
   const doomFrame = useRef<HTMLIFrameElement>(null);
   const ytToggle = useRef<() => void>(() => {});
-  ytToggle.current = () => setYtPaused((p) => !p);
+  ytToggle.current = () => toggleMusic();
   const setWalkMusic = (on: boolean) => {
     setYtOn(on);
     setYtPaused(false);
@@ -96,7 +100,7 @@ export default function Scene3D() {
   const ytSend = (msg: object) => ytFrame.current?.contentWindow?.postMessage(JSON.stringify(msg), YT_ORIGIN);
   // Pause for the shotgun's soundtrack or when you press M; play again otherwise.
   useEffect(() => {
-    const stop = armed || ytPaused || !walking || !ytOn;
+    const stop = armed || ytPaused || !walking || !ytOn || !musicStarted;
     if (ownTrack) {
       const a = ownAudio.current;
       if (a) {
@@ -106,7 +110,7 @@ export default function Scene3D() {
       return;
     }
     ytSend({ event: 'command', func: stop ? 'pauseVideo' : 'playVideo', args: [] });
-  }, [armed, ytPaused, walking, ytOn, ownTrack]);
+  }, [armed, ytPaused, walking, ytOn, ownTrack, musicStarted]);
   // Shotgun mode's YouTube track: M pauses / plays it.
   useEffect(() => {
     doomFrame.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: muted ? 'pauseVideo' : 'playVideo', args: [] }), YT_ORIGIN);
@@ -121,18 +125,20 @@ export default function Scene3D() {
     if (walking) {
       setYtPaused(false);
       setYtStatus('loading');
+      setMusicStarted(false);
     }
   }, [walking]);
   // Listen to the YouTube player so we know whether it actually started. If it hasn't after a few seconds
   // (usually YouTube asking you to sign in, or the browser blocking autoplay), say so and enlarge the player.
   useEffect(() => {
-    if (!walking || !ytOn || ownTrack) return;
+    if (!walking || !ytOn || ownTrack || !musicStarted) return;
     const onMsg = (e: MessageEvent) => {
       if (e.origin !== YT_ORIGIN || typeof e.data !== 'string') return;
       try {
         const m = JSON.parse(e.data);
         const state = m.event === 'onStateChange' ? m.info : m.event === 'infoDelivery' ? m.info?.playerState : undefined;
         if (state === 1) setYtStatus('playing');
+        else if (state === 2) setYtStatus((st) => (st === 'loading' ? st : 'paused'));
       } catch {
         // not a player message
       }
@@ -143,7 +149,7 @@ export default function Scene3D() {
       window.removeEventListener('message', onMsg);
       clearTimeout(timer);
     };
-  }, [walking, ytOn, ownTrack]);
+  }, [walking, ytOn, ownTrack, musicStarted]);
   const pickOwnTrack = (f: File) => {
     ownAudio.current?.pause();
     if (ownTrack) URL.revokeObjectURL(ownTrack.url);
@@ -155,8 +161,21 @@ export default function Scene3D() {
     setOwnTrack({ url, name: f.name.replace(/\.[^.]+$/, '') });
     setYtOn(true);
     setYtPaused(false);
+    setMusicStarted(true); // choosing a file means you want to hear it
   };
   useEffect(() => () => ownAudio.current?.pause(), []);
+  // The play button in the music popup. Its click also counts as the gesture browsers want before playing sound.
+  const musicPlaying = musicStarted && ytOn && (ownTrack ? !ytPaused : ytStatus === 'playing' && !ytPaused);
+  function toggleMusic() {
+    if (!musicStarted || !ytOn) {
+      setMusicStarted(true);
+      return setWalkMusic(true);
+    }
+    if (musicPlaying) return setYtPaused(true);
+    setYtPaused(false);
+    if (ownTrack) ownAudio.current?.play().catch(() => {});
+    else ytSend({ event: 'command', func: 'playVideo', args: [] });
+  }
 
   useEffect(() => {
     const el = ref.current!;
@@ -179,6 +198,13 @@ export default function Scene3D() {
     controls.minDistance = 500;
     controls.maxDistance = 150000;
     controls.screenSpacePanning = true;
+    // Gentler orbiting, zooming in on whatever is under the pointer, and a short glide when you let go.
+    controls.rotateSpeed = 0.45;
+    controls.panSpeed = 0.9;
+    controls.zoomSpeed = 1.2;
+    controls.zoomToCursor = true;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.2;
 
     const hemi = new THREE.HemisphereLight('#ffffff', '#9c8f7c', 1.6);
     scene.add(hemi);
@@ -389,6 +415,24 @@ export default function Scene3D() {
       });
     };
     controls.addEventListener('change', render);
+    // Damping needs update() every frame until the camera settles (it only gets called on input otherwise).
+    let settleFrame = 0;
+    let interacting = false;
+    const settle = () => {
+      // Stop when something else takes over the camera (walk-through, dragging furniture).
+      if (!controls.enabled) {
+        settleFrame = 0;
+        return;
+      }
+      const moved = controls.update();
+      settleFrame = moved || interacting ? requestAnimationFrame(settle) : 0;
+    };
+    const kick = (on: boolean) => () => {
+      interacting = on;
+      if (!settleFrame) settleFrame = requestAnimationFrame(settle);
+    };
+    controls.addEventListener('start', kick(true));
+    controls.addEventListener('end', kick(false));
 
     const resize = () => {
       const w = el.clientWidth;
@@ -408,6 +452,9 @@ export default function Scene3D() {
 
     const fitCamera = () => {
       const box = new THREE.Box3().setFromObject(house);
+      // Kitchen designer: frame the kitchen.
+      const kitchen = store.state.kitchen ? store.state.design.rooms.find((r) => r.id === store.state.kitchen) : undefined;
+      if (kitchen?.points.length) box.setFromPoints(kitchen.points.flatMap((p) => [new THREE.Vector3(p.x, 0, p.y), new THREE.Vector3(p.x, 2400, p.y)]));
       if (box.isEmpty()) box.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(10000, 2700, 8000));
       const c = box.getCenter(new THREE.Vector3());
       const r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 3000);
@@ -559,7 +606,24 @@ export default function Scene3D() {
       m.emissiveIntensity = 0.25;
       return m;
     };
+    // Alignment lines while placing / dragging furniture: the edges it lined up with, drawn at its top.
+    const guideMat = new THREE.LineDashedMaterial({ color: '#e0662b', dashSize: 60, gapSize: 40, depthTest: false, transparent: true });
+    let guideLines: THREE.LineSegments | null = null;
+    const showGuides = (guides: [{ x: number; y: number }, { x: number; y: number }][], y = 0) => {
+      if (guideLines) {
+        scene.remove(guideLines);
+        guideLines.geometry.dispose();
+        guideLines = null;
+      }
+      if (!guides.length) return;
+      const geo = new THREE.BufferGeometry().setFromPoints(guides.flatMap(([a, b]) => [new THREE.Vector3(a.x, y, a.y), new THREE.Vector3(b.x, y, b.y)]));
+      guideLines = new THREE.LineSegments(geo, guideMat);
+      guideLines.computeLineDistances();
+      guideLines.renderOrder = 1001;
+      scene.add(guideLines);
+    };
     const clearGhost = () => {
+      showGuides([]);
       if (ghost) {
         scene.remove(ghost);
         disposeTree(ghost);
@@ -576,9 +640,10 @@ export default function Scene3D() {
       if (tool.kind === 'place') {
         const p = planeHit(e, floorPlane);
         if (p) {
-          const base = newItem(tool.itemType, p.x, p.z, 0);
+          const base = placementItem(tool, p.x, p.z);
           const sn = snapItem(d, base, { x: p.x, y: p.z }, { tol: 120, grid: Math.min(d.settings.snap, 50), free: e.shiftKey });
           const item = { ...base, x: sn.x, y: sn.y, rotation: sn.rotation };
+          showGuides(sn.guides, item.elevation + item.height + 5);
           ghost = buildItem(item, ghostMat);
           ghost.position.set(item.x, item.elevation, item.y);
           ghost.rotation.y = -THREE.MathUtils.degToRad(item.rotation);
@@ -1248,13 +1313,39 @@ export default function Scene3D() {
         if (drag.lift) {
           const p = planeHit(e, drag.lift.plane);
           if (!p) return;
-          const elevation = Math.max(0, roundTo(drag.lift.elevation + p.y - drag.lift.startY, free ? 1 : 10));
+          let elevation = Math.max(0, roundTo(drag.lift.elevation + p.y - drag.lift.startY, free ? 1 : 10));
+          // Line its top or bottom up with neighbours' (e.g. wall cabinets with the top of a pantry).
+          if (!free) {
+            const mine = itemCorners(it);
+            const lo = (k: 'x' | 'y', c: { x: number; y: number }[]) => Math.min(...c.map((q) => q[k]));
+            const hi = (k: 'x' | 'y', c: { x: number; y: number }[]) => Math.max(...c.map((q) => q[k]));
+            const beside = d.items.filter((o) => {
+              if (o.id === it.id) return false;
+              const c = itemCorners(o);
+              return lo('x', c) < hi('x', mine) + 150 && hi('x', c) > lo('x', mine) - 150 && lo('y', c) < hi('y', mine) + 150 && hi('y', c) > lo('y', mine) - 150;
+            });
+            let best = 40;
+            let snapped = elevation;
+            for (const o of beside)
+              for (const level of [o.elevation, o.elevation + o.height])
+                for (const [mineAt, at] of [
+                  [elevation, level],
+                  [elevation + it.height, level - it.height],
+                ]) {
+                  if (Math.abs(level - mineAt) < best && at >= 0) {
+                    best = Math.abs(level - mineAt);
+                    snapped = at;
+                  }
+                }
+            elevation = snapped;
+          }
           apply((dd) => ({ ...dd, items: dd.items.map((i) => (i.id === it.id ? { ...i, elevation } : i)) }));
           return;
         }
         const p = planeHit(e, floorPlane);
         if (!p) return;
         const sn = snapItem(d, it, { x: p.x + drag.off.x, y: p.z + drag.off.y }, { tol: 120, grid: Math.min(d.settings.snap, 50), free });
+        showGuides(sn.guides, it.elevation + it.height + 5);
         apply((dd) => ({ ...dd, items: dd.items.map((i) => (i.id === it.id ? { ...i, x: sn.x, y: sn.y, rotation: sn.rotation } : i)) }));
       } else if (sel.kind === 'opening') {
         const o = d.openings.find((x) => x.id === sel.id);
@@ -1347,6 +1438,7 @@ export default function Scene3D() {
         }
         drag = null;
         lastEvent = null;
+        showGuides([]);
         controls.enabled = true;
         renderer.domElement.style.cursor = 'grab';
         if (renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
@@ -1362,6 +1454,38 @@ export default function Scene3D() {
       if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4 || e.button !== 0) return;
       store.select(pick(e));
     };
+    // Double-click: glide over to the spot you clicked and move in closer, so it's easy to look at something.
+    let focusFrame = 0;
+    const isShown = (o: THREE.Object3D | null) => {
+      for (; o; o = o.parent) if (!o.visible) return false;
+      return true;
+    };
+    const onDblClick = (e: MouseEvent) => {
+      if (walk || store.state.walking || store.state.tool.kind !== 'select') return;
+      setRay(e as PointerEvent);
+      const hit = raycaster.intersectObject(house, true).find((h) => !h.object.userData.pickOnly && !isLiftHandle(h.object) && isShown(h.object));
+      const point = hit?.point ?? raycaster.ray.intersectPlane(floorPlane, new THREE.Vector3());
+      if (!point) return;
+      const fromT = controls.target.clone();
+      const fromP = camera.position.clone();
+      const offset = fromP.clone().sub(fromT);
+      const dist = offset.length();
+      const toDist = THREE.MathUtils.clamp(dist * 0.5, Math.min(dist, 1800), dist);
+      const toP = point.clone().add(offset.setLength(toDist));
+      if (toP.y < 200) toP.y = 200; // stay above the floor
+      const start = performance.now();
+      cancelAnimationFrame(focusFrame);
+      const step = (t: number) => {
+        const k = Math.min(1, (t - start) / 450);
+        const ease = 1 - (1 - k) ** 3;
+        controls.target.lerpVectors(fromT, point, ease);
+        camera.position.lerpVectors(fromP, toP, ease);
+        controls.update();
+        focusFrame = k < 1 ? requestAnimationFrame(step) : 0;
+      };
+      focusFrame = requestAnimationFrame(step);
+    };
+    renderer.domElement.addEventListener('dblclick', onDblClick);
     el.addEventListener('pointerdown', onDownCapture, true); // capture: runs before OrbitControls
     renderer.domElement.addEventListener('pointerdown', onDown);
     renderer.domElement.addEventListener('pointermove', onMove);
@@ -1455,7 +1579,12 @@ export default function Scene3D() {
       composer?.dispose();
       envTex?.dispose();
       unfit();
+      showGuides([]);
+      guideMat.dispose();
       ro.disconnect();
+      cancelAnimationFrame(settleFrame);
+      cancelAnimationFrame(focusFrame);
+      renderer.domElement.removeEventListener('dblclick', onDblClick);
       controls.dispose();
       disposeTree(house);
       renderer.dispose();
@@ -1467,21 +1596,30 @@ export default function Scene3D() {
     <div className="scene-wrap">
       <div className="scene" ref={ref} />
       <div className="measure-labels" ref={labelsRef} />
-      {walking && ytOn && !ownTrack && (
-        <iframe
-          ref={ytFrame}
-          className={ytStatus === 'stuck' ? 'walk-music big' : 'walk-music'}
-          style={armed ? { visibility: 'hidden' } : undefined}
-          title="House Tour — Sabrina Carpenter"
-          src={`${YT_ORIGIN}/embed/${HOUSE_TOUR}?autoplay=1&start=${HOUSE_TOUR_START}&loop=1&playlist=${HOUSE_TOUR}&enablejsapi=1&modestbranding=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`}
-          allow="autoplay; encrypted-media"
-          referrerPolicy="strict-origin-when-cross-origin"
-          onLoad={() => {
-            // Ask the player to report its state.
-            ytSend({ event: 'listening', id: 'house-tour', channel: 'widget' });
-            ytSend({ event: 'command', func: 'addEventListener', args: ['onStateChange'] });
-          }}
-        />
+      {walking && (
+        <div className="walk-music-pop" style={armed ? { visibility: 'hidden' } : undefined} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="walk-music-bar">
+            <button className="walk-music-play" onClick={toggleMusic} title={musicPlaying ? 'Pause the music (M)' : 'Play the music (M)'}>
+              {musicPlaying ? '❚❚' : '▶'}
+            </button>
+            <span className="walk-music-name">♪ {ownTrack ? ownTrack.name : 'House Tour — Sabrina Carpenter'}</span>
+          </div>
+          {ytOn && musicStarted && !ownTrack && (
+            <iframe
+              ref={ytFrame}
+              className={ytStatus === 'stuck' ? 'walk-music-player big' : 'walk-music-player'}
+              title="House Tour — Sabrina Carpenter"
+              src={`${YT_ORIGIN}/embed/${HOUSE_TOUR}?autoplay=1&start=${HOUSE_TOUR_START}&loop=1&playlist=${HOUSE_TOUR}&enablejsapi=1&modestbranding=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`}
+              allow="autoplay; encrypted-media"
+              referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={() => {
+                // Ask the player to report its state.
+                ytSend({ event: 'listening', id: 'house-tour', channel: 'widget' });
+                ytSend({ event: 'command', func: 'addEventListener', args: ['onStateChange'] });
+              }}
+            />
+          )}
+        </div>
       )}
       {walking && armed && !track && (
         <iframe
@@ -1576,7 +1714,7 @@ export default function Scene3D() {
               <span>
                 {ytOn ? (
                   <>
-                    ♪ {ownTrack ? ownTrack.name : 'House Tour — Sabrina Carpenter'} · M to {ytPaused ? 'play' : 'pause'} ·{' '}
+                    ♪ {ownTrack ? ownTrack.name : 'House Tour — Sabrina Carpenter'} · M to {musicPlaying ? 'pause' : 'play'} ·{' '}
                     <a href="#" className="music-pick" onClick={(e) => (e.preventDefault(), setWalkMusic(false))}>
                       turn off
                     </a>
@@ -1615,15 +1753,15 @@ export default function Scene3D() {
                     )}
                   </>
                 ) : (
-                  <a href="#" className="music-pick" onClick={(e) => (e.preventDefault(), setWalkMusic(true))}>
+                  <a href="#" className="music-pick" onClick={(e) => (e.preventDefault(), toggleMusic())}>
                     ♪ Play House Tour — Sabrina Carpenter
                   </a>
                 )}
               </span>
             )}
-            {!armed && ytOn && !ownTrack && ytStatus === 'stuck' && (
+            {!armed && ytOn && musicStarted && !ownTrack && ytStatus === 'stuck' && (
               <span className="walk-warn">
-                YouTube hasn’t started the song — it may want you to sign in or press play. Press Esc, then use the player (bottom right). Signing in to YouTube in this browser usually stops the check.
+                YouTube hasn’t started the song — it may want you to sign in or press play. Press Esc, then press ▶ (bottom right). Signing in to YouTube in this browser usually stops the check.
               </span>
             )}
             <span>{locked ? 'Esc to free the mouse' : 'Click the view to look around with the mouse (or drag) · Esc to exit'}</span>
@@ -1665,10 +1803,24 @@ export default function Scene3D() {
       <div className="scene-hint" style={walking ? { display: 'none' } : undefined}>
         {placing
           ? 'Click to place · it snaps to walls and other items · drag to orbit · Ctrl+click to keep placing · Shift = no snapping · Esc to cancel'
-          : 'Drag furniture, doors, windows & walls to move them (works through the roof) · drag a window up/down to change its sill · drag the blue arrows (or Alt/Ctrl-drag) to raise/lower furniture · PgUp/PgDn · R rotate · Del delete · drag empty space to orbit · WASD / arrows to move around, Q/E down/up'}
+          : 'Drag furniture, doors, windows & walls to move them (works through the roof) · drag a window up/down to change its sill · drag the blue arrows (or Alt/Ctrl-drag) to raise/lower furniture · PgUp/PgDn · R rotate · Del delete · drag empty space to orbit · scroll zooms towards the pointer · double-click to focus on a spot · WASD / arrows to move around, Q/E down/up'}
       </div>
     </div>
   );
+}
+
+/** A Kolton door stop (a short stainless cylinder): sticking out of the wall, or standing on the floor. */
+function doorStopMesh(stop: DoorStopPlace, color: string, m: MatFn, openingId: string): THREE.Mesh {
+  const { diameter, projection } = DOOR_STOP_SIZE;
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(diameter / 2, diameter / 2, projection, 24), m(color, { metal: 0.7, rough: 0.35 }));
+  if (stop.mount === 'floor') mesh.position.set(stop.at.x, projection / 2, stop.at.y);
+  else {
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(stop.dir.x, 0, stop.dir.y));
+    mesh.position.set(stop.at.x + (stop.dir.x * projection) / 2, stop.height, stop.at.y + (stop.dir.y * projection) / 2);
+  }
+  mesh.castShadow = true;
+  mesh.userData.sel = { kind: 'opening', id: openingId };
+  return mesh;
 }
 
 function disposeTree(o: THREE.Object3D) {
@@ -1707,89 +1859,77 @@ function makeMat(selected: boolean): MatFn {
 }
 
 // ---------- floor textures (generated, greyscale so the floor colour tints them) ----------
-const textureCache = new Map<FloorFinish, THREE.Texture>();
+const textureCache = new Map<string, THREE.Texture>();
 
-function floorTexture(kind: FloorFinish): THREE.Texture {
-  const cached = textureCache.get(kind);
+/**
+ * Floor texture for a finish at the room's sizes: boards of the given width (timber, hybrid), tiles of the given
+ * size with grout joints, or carpet / concrete grain. Texture x runs along the boards / tile length.
+ */
+function floorTexture(kind: FloorFinish, size: Required<FloorSize>): THREE.Texture {
+  const key = `${kind}|${size.board}|${size.tileW}|${size.tileL}|${size.grout}`;
+  const cached = textureCache.get(key);
   if (cached) return cached;
-  const size = 512;
+  const W = 1024;
+  const H = 1024;
   const c = document.createElement('canvas');
-  c.width = c.height = size;
+  c.width = W;
+  c.height = H;
   const ctx = c.getContext('2d')!;
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, size);
-  let repeatMm = 1200;
-  if (kind === 'timber') {
-    // 8 boards of 150mm across a 1200mm tile, staggered joints.
-    repeatMm = 1200;
-    const bh = size / 8;
-    for (let i = 0; i < 8; i++) {
-      const g = 225 + rnd() * 30;
+  ctx.fillRect(0, 0, W, H);
+  // Size of the repeat in mm (x along the boards / tile length, y across).
+  let rx = 1200;
+  let ry = 1200;
+  if (kind === 'timber' || kind === 'hybrid') {
+    const timber = kind === 'timber';
+    const bw = Math.max(40, size.board);
+    const n = Math.max(2, Math.min(16, Math.round((timber ? 1200 : 1400) / bw))); // boards in the repeat
+    ry = bw * n;
+    rx = timber ? 2400 : 1830; // a board length or two, so the joints stagger
+    const bh = H / n;
+    for (let i = 0; i < n; i++) {
+      const g = (timber ? 225 : 228) + rnd() * (timber ? 30 : 24);
       ctx.fillStyle = `rgb(${g},${g},${g})`;
-      ctx.fillRect(0, i * bh, size, bh);
-      for (let k = 0; k < 14; k++) {
-        ctx.strokeStyle = `rgba(0,0,0,${0.03 + rnd() * 0.04})`;
+      ctx.fillRect(0, i * bh, W, bh);
+      for (let k = 0; k < (timber ? 14 : 10); k++) {
+        ctx.strokeStyle = `rgba(0,0,0,${(timber ? 0.03 : 0.02) + rnd() * (timber ? 0.04 : 0.03)})`;
         ctx.beginPath();
         const y = i * bh + rnd() * bh;
         ctx.moveTo(0, y);
-        ctx.bezierCurveTo(size / 3, y + rnd() * 6 - 3, (2 * size) / 3, y + rnd() * 6 - 3, size, y);
+        if (timber) ctx.bezierCurveTo(W / 3, y + rnd() * 6 - 3, (2 * W) / 3, y + rnd() * 6 - 3, W, y);
+        else ctx.lineTo(W, y + rnd() * 4 - 2);
         ctx.stroke();
       }
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      ctx.fillRect(0, i * bh, size, 2);
-      const joint = ((i * 0.37) % 1) * size;
-      ctx.fillRect(joint, i * bh, 2, bh);
+      ctx.fillStyle = `rgba(0,0,0,${timber ? 0.28 : 0.2})`;
+      ctx.fillRect(0, i * bh, W, 2);
+      ctx.fillRect(((i * (timber ? 0.37 : 0.53)) % 1) * W, i * bh, 3, bh);
     }
-  } else if (kind === 'hybrid') {
-    // 6 planks of 200 mm across a 1200 mm repeat, long planks with bevelled edges.
-    const bh = size / 6;
-    for (let i = 0; i < 6; i++) {
-      const g = 228 + rnd() * 24;
-      ctx.fillStyle = `rgb(${g},${g},${g})`;
-      ctx.fillRect(0, i * bh, size, bh);
-      for (let k = 0; k < 10; k++) {
-        ctx.strokeStyle = `rgba(0,0,0,${0.02 + rnd() * 0.03})`;
-        ctx.beginPath();
-        const y = i * bh + rnd() * bh;
-        ctx.moveTo(0, y);
-        ctx.lineTo(size, y + rnd() * 4 - 2);
-        ctx.stroke();
+  } else if (kind === 'tile' || kind === 'large_tile') {
+    // 2 × 2 tiles (plus their grout) in the repeat.
+    const tl = Math.max(50, size.tileL);
+    const tw = Math.max(50, size.tileW);
+    const g = Math.max(0, size.grout);
+    rx = 2 * (tl + g);
+    ry = 2 * (tw + g);
+    const px = W / rx;
+    const py = H / ry;
+    for (let i = 0; i < 2; i++)
+      for (let j = 0; j < 2; j++) {
+        const v = 236 + rnd() * 14;
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillRect(i * (tl + g) * px, j * (tw + g) * py, (tl + g) * px, (tw + g) * py);
       }
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
-      ctx.fillRect(0, i * bh, size, 2);
-      ctx.fillRect(((i * 0.53) % 1) * size, i * bh, 2, bh);
-    }
-  } else if (kind === 'large_tile') {
-    // Two 600 × 1200 tiles in a 1200 mm repeat.
-    for (let i = 0; i < 2; i++) {
-      const g = 236 + rnd() * 14;
-      ctx.fillStyle = `rgb(${g},${g},${g})`;
-      ctx.fillRect((i * size) / 2, 0, size / 2, size);
-    }
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    ctx.fillRect(0, 0, size, 2);
-    ctx.fillRect(0, 0, 2, size);
-    ctx.fillRect(size / 2 - 1, 0, 2, size);
-  } else if (kind === 'tile') {
-    repeatMm = 1200;
-    const n = 2;
-    const ts = size / n;
-    for (let i = 0; i < n; i++)
-      for (let j = 0; j < n; j++) {
-        const g = 238 + rnd() * 14;
-        ctx.fillStyle = `rgb(${g},${g},${g})`;
-        ctx.fillRect(i * ts, j * ts, ts, ts);
-      }
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    for (let i = 0; i <= n; i++) {
-      ctx.fillRect(i * ts - 2, 0, 4, size);
-      ctx.fillRect(0, i * ts - 2, size, 4);
-    }
+    // Grout joints (at least a hairline so the tiles still read).
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    const gx = Math.max(1, g * px);
+    const gy = Math.max(1, g * py);
+    for (let i = 0; i < 2; i++) ctx.fillRect(i * (tl + g) * px, 0, gx, H);
+    for (let j = 0; j < 2; j++) ctx.fillRect(0, j * (tw + g) * py, W, gy);
   } else {
-    repeatMm = kind === 'carpet' ? 600 : 2000;
-    const img = ctx.getImageData(0, 0, size, size);
+    rx = ry = kind === 'carpet' ? 600 : 2000;
+    const img = ctx.getImageData(0, 0, W, H);
     for (let i = 0; i < img.data.length; i += 4) {
       const g = kind === 'carpet' ? 215 + rnd() * 40 : 225 + rnd() * 30;
       img.data[i] = img.data[i + 1] = img.data[i + 2] = g;
@@ -1798,20 +1938,20 @@ function floorTexture(kind: FloorFinish): THREE.Texture {
   }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1 / repeatMm, 1 / repeatMm);
+  tex.repeat.set(1 / rx, 1 / ry);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  textureCache.set(kind, tex);
+  tex.anisotropy = 8;
+  textureCache.set(key, tex);
   return tex;
 }
 
 /** Floor texture turned so the boards run in `deg` (0 = along plan x). Shares the image with the base texture. */
 const rotatedTextures = new Map<string, THREE.Texture>();
-function floorTextureAt(kind: FloorFinish, deg: number): THREE.Texture {
-  const base = floorTexture(kind);
+function floorTextureAt(kind: FloorFinish, deg: number, size: Required<FloorSize>): THREE.Texture {
+  const base = floorTexture(kind, size);
   const a = ((Math.round(deg) % 180) + 180) % 180;
   if (!a) return base;
-  const key = `${kind}|${a}`;
+  const key = `${kind}|${size.board}|${size.tileW}|${size.tileL}|${size.grout}|${a}`;
   let t = rotatedTextures.get(key);
   if (!t) {
     t = base.clone();
@@ -1904,10 +2044,10 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
   const isSel = (kind: string, id: string) => selection?.kind === kind && selection.id === id;
 
   // House flooring: covers everything inside the walls (whether or not rooms are drawn).
-  const floorMat = (f: { finish: FloorFinish; color: string; direction?: number }) =>
+  const floorMat = (f: { finish: FloorFinish; color: string; direction?: number; size: Required<FloorSize> }) =>
     new THREE.MeshStandardMaterial({
       color: f.color,
-      map: floorTextureAt(f.finish, f.direction ?? 0),
+      map: floorTextureAt(f.finish, f.direction ?? 0, f.size),
       roughness: f.finish === 'tile' || f.finish === 'large_tile' ? 0.35 : f.finish === 'concrete' ? 0.5 : 0.85,
       side: THREE.DoubleSide,
     });
@@ -2015,10 +2155,13 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
       if (top < H) wallBox(g, z - a, H - top, w.thickness, cx, top, inner, faces);
       if (o.id.includes('#')) continue; // a hole cut through a doubled-up wall; the door itself is built once
       const shown = effectiveDoor(o, d, !(out?.pos || out?.neg)); // interior doors follow the house style
-      const og = buildOpening(shown, w.thickness, w.height, isSel('opening', o.id) ? highlight : plain, H, out?.pos ? 1 : out?.neg ? -1 : undefined);
+      // Hinged doors open fully, or until something's in the way (or they rest on their door stop).
+      const layout = shown.kind === 'door' || shown.kind === 'double_door' ? doorStopLayout(d, shown, w) : [];
+      const og = buildOpening(shown, w.thickness, w.height, isSel('opening', o.id) ? highlight : plain, H, out?.pos ? 1 : out?.neg ? -1 : undefined, openingTrim(d, shown), layout.map((l) => l.angle));
       og.position.x = cx;
       og.userData.sel = { kind: 'opening', id: o.id };
       g.add(og);
+      for (const { stop } of layout) if (stop && (stop.mount === 'floor' || stop.height < H)) house.add(doorStopMesh(stop, doorStopProduct(shown.doorStop?.product).hex, plain, o.id));
     }
     house.add(g);
   }
@@ -2029,11 +2172,12 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
 
   // Roof (hidden in cutaway mode so you can see in)
   let roofFaces: RoofFace[] | null = null; // for skylights
+  const roofRes = d.roof ? generateRoof(d, d.roof) : null;
   if (d.roof && showRoof && !cutaway) {
-    const r = generateRoof(d, d.roof);
+    const r = roofRes!;
     if (!('error' in r)) {
       roofFaces = r.faces.filter((f) => f.mat === 'roof' && f.top);
-      const sel = isSel('roof', 'roof');
+      const sel = selection?.kind === 'roof'; // the roof or one of its extensions
       // While a door, window or item is selected, make the roof see-through so you can see what you're moving.
       const seeThrough = selection?.kind === 'opening' || selection?.kind === 'item';
       const wallColor = d.walls[0]?.color ?? '#f2efe9';
@@ -2088,7 +2232,8 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
   const plate = d.roof ? roofPlate(d, d.roof) : undefined;
   const ceilingH = ceilingOf(d)?.height ?? Math.max(0, ...d.walls.map((w) => w.height));
   for (const it of d.items) {
-    const itemPlate = it.underRoof ? plate : undefined;
+    // Porches under the main roof and the columns holding it up rise to the top of the walls.
+    const itemPlate = it.underRoof || (roofRes && !('error' in roofRes) && roofRes.supports.includes(it.id)) ? plate : undefined;
     seen.add(it.id);
     const selected = isSel('item', it.id);
     const cached = cache.get(it.id);
@@ -2711,7 +2856,7 @@ function mitredRun(shape: THREE.Shape, e: EaveEdge, y: number, mat: THREE.Materi
  * Everything along the eaves: the eave lining (Villaboard soffit) from the fascia back to the wall, gutters on the
  * fascia just under the roof edge with mitred corners, and downpipes at outside corners and the ends of runs.
  */
-function buildEaves(d: Design, r: { eaves: { x: number; y: number }[][] }, faces: RoofFace[] | null): THREE.Group {
+function buildEaves(d: Design, r: { eaves: { x: number; y: number }[][]; outside: { x: number; y: number }[][] }, faces: RoofFace[] | null): THREE.Group {
   const g = new THREE.Group();
   const roof = d.roof!;
   if (!faces?.length) return g;
@@ -2719,22 +2864,33 @@ function buildEaves(d: Design, r: { eaves: { x: number; y: number }[][] }, faces
   const fasciaDepth = Math.max(20, roof.fascia);
   // Eave lining: a level sheet under each eave, its width the overhang, mitred where eaves meet.
   const soffit = roof.soffit ?? { show: true, color: '#f4f4f0' };
-  if (soffit.show !== false && roof.overhang > 40) {
+  if (soffit.show !== false) {
     const ov = roof.overhang;
     const pos: number[] = [];
-    for (const loop of loops)
-      for (const e of loop) {
-        // Just under the bottom of the fascia (the roof edge is a little below where e.h was measured).
-        const k = Math.tan(THREE.MathUtils.degToRad(roof.pitch));
-        const y = e.h - 30 * k - fasciaDepth - 15;
-        const ix = -e.ox * ov;
-        const iz = -e.oz * ov;
-        const p1 = [e.a.x, y, e.a.y];
-        const p2 = [e.b.x, y, e.b.y];
-        const p3 = [e.b.x + ix - e.ux * ov * e.k1, y, e.b.y + iz - e.uz * ov * e.k1];
-        const p4 = [e.a.x + ix + e.ux * ov * e.k0, y, e.a.y + iz + e.uz * ov * e.k0];
+    const k = Math.tan(THREE.MathUtils.degToRad(roof.pitch));
+    // Roofed areas outside the walls (patios, verandas…) are lined right back to the house, level with the eaves.
+    const eaveH = Math.min(...loops.flat().map((e) => e.h));
+    if (r.outside.length && Number.isFinite(eaveH)) {
+      const y = eaveH - 30 * k - fasciaDepth - 15;
+      for (const poly of r.outside) {
+        const [p1, p2, p3, p4] = poly.map((q) => [q.x, y, q.y]);
         pos.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4);
       }
+    }
+    if (ov > 40) {
+      for (const loop of loops)
+        for (const e of loop) {
+          // Just under the bottom of the fascia (the roof edge is a little below where e.h was measured).
+          const y = e.h - 30 * k - fasciaDepth - 15;
+          const ix = -e.ox * ov;
+          const iz = -e.oz * ov;
+          const p1 = [e.a.x, y, e.a.y];
+          const p2 = [e.b.x, y, e.b.y];
+          const p3 = [e.b.x + ix - e.ux * ov * e.k1, y, e.b.y + iz - e.uz * ov * e.k1];
+          const p4 = [e.a.x + ix + e.ux * ov * e.k0, y, e.a.y + iz + e.uz * ov * e.k0];
+          pos.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4);
+        }
+    }
     if (pos.length) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));

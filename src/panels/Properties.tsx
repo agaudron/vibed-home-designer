@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SOLAR_DEFAULTS, SOLAR_PANELS, solarArraySize, GUTTER_STYLES, ROOF_MATERIALS, ROOF_PROFILES, TILE_COLOURS, productLink, DRESSINGS, DRESSING_FABRICS, BANQUETTE_BACKS, BANQUETTE_DEFAULTS, SKYLIGHT_DEFAULTS, SKYLIGHT_MODELS, SKYLIGHT_SIZES, SUN_TUNNEL_SIZES, UPHOLSTERY, COLORBOND, DOOR_DESIGNS, TIMBERLINE, VANITY_DEFAULTS, FLOOR_COLORS, FLOOR_NAMES, FLOOR_SWATCHES, GARAGE_STYLES, ITEM_MAP } from '../catalog';
-import { CORNICES, DIRECTIONAL_FLOORS, LININGS, SKIRTINGS, liningFor, wallFaces } from '../trims';
+import { BOARD_FLOORS, CORNICES, TILE_FLOORS, floorOf, DIRECTIONAL_FLOORS, LININGS, SKIRTINGS, WINDOW_TRIM, hasOpeningTrim, houseTrimType, houseTrimWidth, liningFor, openingTrim, wallFaces } from '../trims';
 import type { TrimProfile } from '../trims';
 import { addOrSelectRoof, detectRoomsWithMessage, duplicateWalls, removeDuplicateWallsWithMessage, squareUpWallsWithMessage, deleteSelection, duplicateSelection, isDoorKind, setGlobalDoorHeight, setGlobalWallColor, setGlobalWallHeight, rotateSelection, setWallLength, splitWall } from '../actions';
-import { faceColor, clampOpeningOffset, DEFAULT_INTERIOR_DOOR, STACKER_FRAME, STACKER_MAX_PANELS, STACKER_OVERLAP, stackerWidth, deg, dist, effectiveDoor, isLeafDoor, sidelights, wallClearLength, formatArea, normAngle, polygonArea, roomInterior, wallFrame } from '../geometry';
+import { faceColor, pointInPolygon, clampOpeningOffset, DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, doubleDoorWidth, DEFAULT_INTERIOR_DOOR, STACKER_FRAME, STACKER_MAX_PANELS, STACKER_OVERLAP, stackerWidth, deg, dist, effectiveDoor, isLeafDoor, sidelights, wallClearLength, formatArea, normAngle, polygonArea, roomInterior, wallFrame } from '../geometry';
 import { QUALITIES, setQuality, store, useStore } from '../store';
 import type { RenderQuality } from '../store';
 import FloorAreas from './FloorAreas';
 import { openLegal } from './Legal';
 import RoomMaterials from './RoomMaterials';
 import { openProductCard } from './ProductCard';
-import { checkDoor, clearOffset, doorHandle, HANDLE_FINISHES, HANDLES, MIN_OPEN } from '../doorClearance';
+import { checkDoor, clearOffset, doorHandle, doorStopLayout, HANDLE_DEFAULT, HANDLE_FINISHES, HANDLES, MIN_OPEN } from '../doorClearance';
 import type { HandleType } from '../doorClearance';
 import { exteriorSides, FINISHES } from '../facade';
 import { generateRoof } from '../roof';
 import FacadeEditor from './FacadeEditor';
+import { KABOODLE_PRODUCTS } from '../kaboodle';
+import { DOOR_STOP_SIZE, DOOR_STOPS, doorStopProduct, doorStopUrl } from '../doorStops';
+import { ABI_HANDLE_BY_SLUG, ABI_HANDLES, abiHandleName, abiHandleUrl } from '../doorHandles';
+import { isKitchenRoom, isUnderBench, kitchenStyle, openKitchenDesigner, swapProduct } from '../kitchen';
 import { applyConstructionWithMessage, CONSTRUCTIONS, constructionThickness } from '../construction';
-import type { Construction, CorniceType, Design, DoorDesign, LiningType, GarageStyle, Facade, FloorFinish, SkirtingType, Item, Opening, OpeningKind, Roof, RoofStyle, Room, Wall } from '../types';
+import type { Construction, CorniceType, Design, DoorDesign, LiningType, GarageStyle, Facade, FloorFinish, FloorSize, SkirtingType, Item, Opening, OpeningKind, Roof, RoofExtension, RoofStyle, Room, Wall, DoorStop, DoorHandleSpec } from '../types';
 import { ColorField, Field, NumField, TextField, Toggle } from './Fields';
 
 const upd = <K extends 'walls' | 'openings' | 'items' | 'rooms'>(key: K, id: string, patch: Partial<Design[K][number]>) =>
@@ -215,7 +219,33 @@ function OpeningProps({ o: raw, w }: { o: Opening; w: Wall }) {
           })
         }
       />
-      {isDoor && <Presets values={[620, 720, 820, 920, 1020]} current={o.width} onPick={(v) => upd('openings', o.id, { width: v })} />}
+      {isDoor && o.kind !== 'double_door' && <Presets values={[620, 720, 820, 920, 1020]} current={o.width} onPick={(v) => upd('openings', o.id, { width: v })} />}
+      {o.kind === 'double_door' && (
+        <>
+          <NumField
+            label="Each door"
+            value={Math.round(doubleDoorLeaf(o.width) * 10) / 10}
+            min={300}
+            max={1200}
+            onChange={(v) => {
+              const width = doubleDoorWidth(v);
+              upd('openings', o.id, { width, offset: clampOpeningOffset({ ...o, width }, L) });
+            }}
+            hint={`Width of each door leaf; the opening is 2 doors + ${DOOR_GAP} mm gaps at both edges and between them + the jambs`}
+          />
+          <Presets
+            values={[620, 720, 820, 920]}
+            current={doubleDoorLeaf(o.width)}
+            onPick={(v) => {
+              const width = doubleDoorWidth(v);
+              upd('openings', o.id, { width, offset: clampOpeningOffset({ ...o, width }, L) });
+            }}
+          />
+          <p className="note">
+            Two {Math.round(doubleDoorLeaf(o.width) * 10) / 10} mm doors with {DOOR_GAP} mm gaps at the edges and in the middle, in a {o.width} mm opening (including {DOOR_JAMB} mm jambs each side).
+          </p>
+        </>
+      )}
       <NumField label="Height" value={o.height} min={100} max={w.height - o.sill} onChange={(v) => upd('openings', o.id, { height: v })} />
       <NumField label="Sill height" value={o.sill} min={0} max={w.height - 100} onChange={(v) => upd('openings', o.id, { sill: v, height: Math.min(o.height, w.height - v) })} />
       <NumField
@@ -235,7 +265,8 @@ function OpeningProps({ o: raw, w }: { o: Opening; w: Wall }) {
         </div>
       )}
       {(o.kind === 'door' || o.kind === 'double_door') && <DoorOptions o={o} follows={follows} inside={inside} />}
-      {(o.kind === 'door' || o.kind === 'double_door') && <HandleOptions o={raw} w={w} design={design} />}
+      {(o.kind === 'door' || o.kind === 'double_door') && <HandleOptions o={raw} w={w} design={design} inside={inside} />}
+      {(o.kind === 'door' || o.kind === 'double_door') && <DoorStopOptions o={raw} w={w} design={design} inside={inside} />}
       {(o.kind === 'window' || o.kind === 'sliding_door' || o.kind === 'stacker_door') && <DressingOptions o={raw} inside={inside} />}
       {o.kind === 'garage_door' && (
         <Field label="Style">
@@ -265,8 +296,60 @@ function OpeningProps({ o: raw, w }: { o: Opening; w: Wall }) {
       ) : (
         <ColorField label="Colour" value={o.color} onChange={(col) => upd('openings', o.id, follows ? { design: o.design, glass: o.glass, color: col } : { color: col })} paint="timber" />
       )}
+      {hasOpeningTrim(o.kind) && <OpeningTrimOptions o={raw} design={design} />}
       <Actions />
     </Section>
+  );
+}
+
+/** Trim (architraves) round a door or window, and whether a window has a sill. */
+function OpeningTrimOptions({ o, design }: { o: Opening; design: Design }) {
+  const t = openingTrim(design, o);
+  const setTrim = (patch: Partial<NonNullable<Opening['trim']>>) => {
+    const next = { ...o.trim, ...patch };
+    for (const k of Object.keys(next) as (keyof typeof next)[]) if (next[k] === undefined) delete next[k];
+    upd('openings', o.id, { trim: Object.keys(next).length ? next : undefined });
+  };
+  const houseWidth = houseTrimWidth(design, o.kind);
+  return (
+    <>
+      <div className="sub-head">Trim</div>
+      <TrimSelect<SkirtingType>
+        label="Type"
+        kind="skirting"
+        options={SKIRTINGS}
+        value={o.trim?.type ?? null}
+        inherit={`House (${SKIRTINGS[houseTrimType(design)].name})`}
+        onChange={(v) => setTrim({ type: v ?? undefined })}
+      />
+      {t.type !== 'none' && (
+        <>
+          <NumField label="Width" value={t.width} min={0} max={300} onChange={(v) => setTrim({ width: v })} hint="Face width of the trim (architraves)" />
+          <div className="presets">
+            {[42, 66, 90].map((p) => (
+              <button key={p} className={o.trim?.width === p ? 'on' : ''} onClick={() => setTrim({ width: p })}>
+                {p}
+              </button>
+            ))}
+            <button className={o.trim?.width === undefined ? 'on' : ''} onClick={() => setTrim({ width: undefined })} title={`The house setting (${houseWidth} mm)`}>
+              House
+            </button>
+          </div>
+        </>
+      )}
+      {o.kind === 'window' && (
+        <Field label="Bottom">
+          <span className="presets inline">
+            <button className={o.windowSill !== false ? 'on' : ''} onClick={() => upd('openings', o.id, { windowSill: undefined })} title="A sill, with trim under it">
+              Sill
+            </button>
+            <button className={o.windowSill === false ? 'on' : ''} onClick={() => upd('openings', o.id, { windowSill: false })} title="No sill: the trim runs right round">
+              Trim only
+            </button>
+          </span>
+        </Field>
+      )}
+    </>
   );
 }
 
@@ -298,6 +381,8 @@ function ItemProps({ it }: { it: Item }) {
       </div>
       <ColorField label="Colour" value={it.color} onChange={(c) => set({ color: c })} />
       {(it.type === 'veranda' || it.type === 'porch') && <UnderRoof it={it} />}
+      {it.type === 'column' && <ColumnSupport it={it} />}
+      {it.type === 'kaboodle' && <KaboodleOptions it={it} />}
       {it.type === 'vanity_tl' && <TimberlineOptions it={it} />}
       {it.type.startsWith('abi_') && <AbiOptions it={it} />}
       <ProductLinkRow it={it} />
@@ -359,6 +444,14 @@ function RoomProps({ r }: { r: Room }) {
   return (
     <Section title="Room / floor">
       <TextField label="Name" value={r.name} onChange={(v) => set({ name: v })} />
+      {isKitchenRoom(r) && (
+        <div className="kd-open">
+          <button className="primary" onClick={() => openKitchenDesigner(r.id)}>
+            Open kitchen designer
+          </button>
+          <p className="note">Lay out the kitchen with Kaboodle cabinets, pick door colours, benchtops and handles, and get a shopping list.</p>
+        </div>
+      )}
       <RoomFinishes r={r} />
       {ri?.rect && (
         <Field label="Internal size">
@@ -569,11 +662,102 @@ function RoofProps({ roof, design }: { roof: Roof; design: Design }) {
         <Toggle label="Use tallest wall height" value={roof.eaveHeight === null} onChange={(on) => set({ eaveHeight: on ? null : autoPlate })} />
       </div>
       <NumField label="Roof thickness" value={roof.fascia} min={20} max={600} onChange={(v) => set({ fascia: v })} />
+      <RoofExtensions roof={roof} set={set} />
       <RoofingOptions roof={roof} set={set} />
       <p className="note">The roof follows your walls automatically. In 3D, “Cutaway walls” or the Roof button hides it so you can see inside.</p>
       <Actions duplicate={false} />
     </Section>
   );
+}
+
+/** Areas the roof is pulled out over (made by dragging the arrows on its edges in the plan). */
+function RoofExtensions({ roof, set }: { roof: Roof; set: (patch: Partial<Roof>) => void }) {
+  const selId = useStore((s) => (s.selection?.kind === 'roof' ? s.selection.id : null));
+  const list = roof.extensions ?? [];
+  const setExt = (id: string, patch: Partial<RoofExtension>) => set({ extensions: list.map((x) => (x.id === id ? { ...x, ...patch } : x)) });
+  return (
+    <>
+      <div className="sub-head">Roof extensions</div>
+      {list.length === 0 && (
+        <p className="note">
+          To roof over a patio, drag one of the arrows on the roof’s edges out in the plan. Adding a column outside the house also pulls the roof out
+          over it.
+        </p>
+      )}
+      {list.map((x, i) => (
+        <div key={x.id} className={selId === x.id ? 'roof-ext-row on' : 'roof-ext-row'}>
+          <Field label={`Extension ${i + 1}`}>
+            <a href="#" onClick={(e) => (e.preventDefault(), store.select({ kind: 'roof', id: x.id }))}>
+              select
+            </a>
+            {' · '}
+            <a href="#" onClick={(e) => (e.preventDefault(), set({ extensions: list.filter((y) => y.id !== x.id) }))}>
+              remove
+            </a>
+          </Field>
+          <NumField label="Along the house" value={x.width} min={300} max={30000} onChange={(v) => setExt(x.id, { width: v })} />
+          <NumField label="Out from it" value={x.depth} min={300} max={30000} onChange={(v) => setExt(x.id, { depth: v })} />
+        </div>
+      ))}
+      {list.length > 0 && <p className="note">Drag an extension in the plan to move it, or its side handles to resize it. Del removes the selected one.</p>}
+    </>
+  );
+}
+
+/** A Kaboodle unit: what it is, other sizes of the same kind, and its kitchen. */
+function KaboodleOptions({ it }: { it: Item }) {
+  const design = useStore((s) => s.design);
+  const kitchenOpen = useStore((s) => s.kitchen);
+  const o = it.options ?? {};
+  const cls = String(o.cls ?? 'base');
+  const room = design.rooms.find((r) => r.points.length >= 3 && pointInPolygon({ x: it.x, y: it.y }, r.points));
+  const style = kitchenStyle(room);
+  const same = KABOODLE_PRODUCTS.filter((p) => p.cls === cls);
+  const current = String(o.product ?? it.name);
+  return (
+    <>
+      <div className="sub-head">Kaboodle</div>
+      <Field label="Unit">
+        <select
+          value={current}
+          onChange={(e) => {
+            const p = same.find((x) => x.name === e.target.value);
+            if (p) swapProduct(it.id, p, style);
+          }}
+        >
+          {!same.some((p) => p.name === current) && <option value={current}>{current}</option>}
+          {same.map((p, i) => (
+            <option key={`${p.name}-${i}`} value={p.name}>
+              {p.name} ({p.width})
+            </option>
+          ))}
+        </select>
+      </Field>
+      <p className="note">
+        {[o.door && `Doors: ${o.door}`, isUnderBench(cls) && o.benchName && `benchtop: ${o.benchName}`, o.handleName && `handles: ${o.handleName}`].filter(Boolean).join(' · ')}
+        {o.url ? (
+          <>
+            {' · '}
+            <a href={String(o.url)} target="_blank" rel="noreferrer">
+              Product page
+            </a>
+          </>
+        ) : null}
+      </p>
+      {room && isKitchenRoom(room) && kitchenOpen !== room.id && (
+        <button onClick={() => openKitchenDesigner(room.id)}>Open kitchen designer</button>
+      )}
+    </>
+  );
+}
+
+/** Columns standing outside the house hold up the main roof, which is pulled out over them. */
+function ColumnSupport({ it }: { it: Item }) {
+  const design = useStore((s) => s.design);
+  const res = useMemo(() => (design.roof ? generateRoof(design, design.roof) : null), [design]);
+  if (!design.roof) return <p className="note">If you add a roof, it’s pulled out over columns standing outside the house.</p>;
+  if (res && !('error' in res) && res.supports.includes(it.id)) return <p className="note">Holds up the main roof: the roof reaches out over it and the column rises to the top of the walls.</p>;
+  return <p className="note">Not holding up the roof. Stand it on the floor, at least 1800 mm tall and within 10 m of the house, to extend the roof over it.</p>;
 }
 
 function RoofIcon({ style }: { style: RoofStyle }) {
@@ -713,6 +897,69 @@ function UnderRoof({ it }: { it: Item }) {
   );
 }
 
+/**
+ * Board width (timber, hybrid) or tile size and grout width (tiles) for a floor. `reset`: a room's own sizes,
+ * back to the house's.
+ */
+function FloorSizeFields({ finish, size, onChange, reset }: { finish: FloorFinish; size: Required<FloorSize>; onChange: (p: FloorSize) => void; reset?: () => void }) {
+  const resetLink = reset && (
+    <p className="note">
+      This room has its own sizes.{' '}
+      <a href="#" onClick={(e) => (e.preventDefault(), reset())}>
+        Use the house sizes
+      </a>
+    </p>
+  );
+  if (BOARD_FLOORS.has(finish)) {
+    const presets = finish === 'timber' ? [85, 130, 180, 220] : [180, 230];
+    return (
+      <>
+        <NumField label="Board width" value={size.board} min={40} max={600} onChange={(v) => onChange({ board: v })} hint="Width of each board / plank (its cover width)" />
+        <div className="presets">
+          {presets.map((p) => (
+            <button key={p} className={size.board === p ? 'on' : ''} onClick={() => onChange({ board: p })}>
+              {p}
+            </button>
+          ))}
+        </div>
+        {resetLink}
+      </>
+    );
+  }
+  if (TILE_FLOORS.has(finish)) {
+    const presets: [number, number][] = finish === 'tile' ? [[300, 300], [450, 450], [600, 600], [300, 600]] : [[600, 1200], [750, 1500], [800, 1600], [1200, 1200]];
+    return (
+      <>
+        <Field label="Tile size" hint="Width × length of each tile (length runs in the floor direction)">
+          <span className="tile-size">
+            <input type="number" min={50} max={3200} value={size.tileW} onChange={(e) => Number(e.target.value) >= 50 && onChange({ tileW: Number(e.target.value) })} aria-label="Tile width" />
+            ×
+            <input type="number" min={50} max={3200} value={size.tileL} onChange={(e) => Number(e.target.value) >= 50 && onChange({ tileL: Number(e.target.value) })} aria-label="Tile length" />
+            mm
+          </span>
+        </Field>
+        <div className="presets">
+          {presets.map(([w, l]) => (
+            <button key={`${w}x${l}`} className={size.tileW === w && size.tileL === l ? 'on' : ''} onClick={() => onChange({ tileW: w, tileL: l })}>
+              {w}×{l}
+            </button>
+          ))}
+        </div>
+        <NumField label="Grout" value={size.grout} min={0} max={20} step={0.5} onChange={(v) => onChange({ grout: v })} hint="Width of the grout joints between tiles" />
+        <div className="presets">
+          {[1.5, 2, 3, 5].map((g) => (
+            <button key={g} className={size.grout === g ? 'on' : ''} onClick={() => onChange({ grout: g })}>
+              {g} mm
+            </button>
+          ))}
+        </div>
+        {resetLink}
+      </>
+    );
+  }
+  return null;
+}
+
 /** Floor finish + named colour swatches. */
 function FloorPicker({ value, onChange }: { value: { finish: FloorFinish; color: string }; onChange: (v: { finish: FloorFinish; color: string }) => void }) {
   const sw = FLOOR_SWATCHES[value.finish] ?? [];
@@ -789,7 +1036,16 @@ function InteriorSettings({ design }: { design: Design }) {
   const own = design.rooms.filter((r) => r.floor || r.cornice || r.skirting).length;
   return (
     <Section title="Floors, cornices & skirting">
-      <FloorPicker value={s.flooring} onChange={(f) => setS({ flooring: f })} />
+      <FloorPicker
+        value={s.flooring}
+        // A different finish starts from its own default sizes.
+        onChange={(f) => setS({ flooring: { ...s.flooring, ...f, size: f.finish === s.flooring.finish ? s.flooring.size : undefined } })}
+      />
+      <FloorSizeFields
+        finish={s.flooring.finish}
+        size={floorOf(design, null).size}
+        onChange={(p) => setS({ flooring: { ...s.flooring, size: { ...s.flooring.size, ...p } } })}
+      />
       {DIRECTIONAL_FLOORS.has(s.flooring.finish) && (
         <BoardDirection value={s.flooring.direction ?? 0} onChange={(dir) => setS({ flooring: { ...s.flooring, direction: dir ?? 0 } })} />
       )}
@@ -805,6 +1061,21 @@ function InteriorSettings({ design }: { design: Design }) {
       <TrimSelect<CorniceType> label="Cornice" kind="cornice" options={CORNICES} value={s.cornice} onChange={(v) => setS({ cornice: v ?? 'none' })} />
       <TrimSelect<SkirtingType> label="Skirting" kind="skirting" options={SKIRTINGS} value={s.skirting} onChange={(v) => setS({ skirting: v ?? 'none' })} />
       <ColorField label="Skirting colour" value={s.skirtingColor} onChange={(c) => setS({ skirtingColor: c })} paint="timber" />
+      <NumField
+        label="Window trim"
+        value={s.windowTrim ?? WINDOW_TRIM}
+        min={0}
+        max={200}
+        onChange={(v) => setS({ windowTrim: v })}
+        hint="Width of the trim (architraves) round the inside of windows; 0 for none"
+      />
+      <div className="presets">
+        {[0, 42, 66, 90].map((p) => (
+          <button key={p} className={(s.windowTrim ?? WINDOW_TRIM) === p ? 'on' : ''} onClick={() => setS({ windowTrim: p })}>
+            {p === 0 ? 'None' : p}
+          </button>
+        ))}
+      </div>
       <p className="note">
         These apply to the whole house. Cornices use the ceiling colour. Select a room to give it its own floor, cornice or skirting (e.g. a bathroom with tiles, a
         square-set ceiling and no skirting).
@@ -847,7 +1118,18 @@ function RoomFinishes({ r }: { r: Room }) {
           <option value="own">This room only…</option>
         </select>
       </Field>
-      {r.floor && <FloorPicker value={{ finish: r.floor, color: r.color ?? FLOOR_COLORS[r.floor] }} onChange={(f) => set({ floor: f.finish, color: f.color })} />}
+      {r.floor && (
+        <FloorPicker
+          value={{ finish: r.floor, color: r.color ?? FLOOR_COLORS[r.floor] }}
+          onChange={(f) => set({ floor: f.finish, color: f.color, ...(f.finish !== r.floor ? { floorSize: null } : {}) })}
+        />
+      )}
+      <FloorSizeFields
+        finish={r.floor ?? s.flooring.finish}
+        size={floorOf(d, r).size}
+        onChange={(p) => set({ floorSize: { ...r.floorSize, ...p } })}
+        reset={r.floorSize ? () => set({ floorSize: null }) : undefined}
+      />
       {DIRECTIONAL_FLOORS.has(r.floor ?? s.flooring.finish) && (
         <BoardDirection
           value={r.floorDirection ?? null}
@@ -1253,6 +1535,88 @@ function TimberlineOptions({ it }: { it: Item }) {
   );
 }
 
+/** House handle for interior hinged doors (generic or ABI Interiors). */
+function HouseHandle({ design, interiorDoors }: { design: Design; interiorDoors: Opening[] }) {
+  const hh = design.settings.interiorHandle ?? undefined;
+  const setHh = (v: DoorHandleSpec | undefined) => store.update((d) => ({ ...d, settings: { ...d.settings, interiorHandle: v ?? null } }));
+  const own = interiorDoors.filter((o) => o.handle).length;
+  return (
+    <>
+      <HandlePicker value={hh ?? { ...HANDLE_DEFAULT }} onChange={setHh} entry={false} />
+      {own > 0 && (
+        <p className="note">
+          {own} interior door{own === 1 ? ' has its' : 's have their'} own handle.{' '}
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              const ids = new Set(interiorDoors.map((o) => o.id));
+              store.update((d) => ({ ...d, openings: d.openings.map((o) => (ids.has(o.id) ? { ...o, handle: undefined } : o)) }));
+            }}
+          >
+            Use the house handle on all
+          </a>
+        </p>
+      )}
+    </>
+  );
+}
+
+/** House door stop for interior hinged doors (ABI Interiors). */
+function HouseDoorStop({ design, interiorDoors }: { design: Design; interiorDoors: Opening[] }) {
+  const hs = design.settings.interiorDoorStop ?? null;
+  const product = doorStopProduct(hs?.product);
+  const setHs = (v: DoorStop | null) => store.update((d) => ({ ...d, settings: { ...d.settings, interiorDoorStop: v } }));
+  const own = interiorDoors.filter((o) => o.doorStop).length;
+  return (
+    <>
+      <Field label="Door stop">
+        <span className="presets inline">
+          <button className={!hs || hs.mount === 'none' ? 'on' : ''} onClick={() => setHs(null)}>
+            None
+          </button>
+          <button className={hs?.mount === 'wall' ? 'on' : ''} onClick={() => setHs({ mount: 'wall', product: product.slug })} title="On the wall each door opens back to, at handle height">
+            Wall
+          </button>
+          <button className={hs?.mount === 'floor' ? 'on' : ''} onClick={() => setHs({ mount: 'floor', product: product.slug })} title="On the floor where each door rests when open">
+            Floor
+          </button>
+        </span>
+      </Field>
+      {hs && hs.mount !== 'none' && (
+        <Field label="ABI stop">
+          <select value={product.slug} onChange={(e) => setHs({ ...hs, product: e.target.value })}>
+            {[false, true].map((mag) => (
+              <optgroup key={String(mag)} label={mag ? 'Kolton Magnetic Door Stop' : 'Kolton Door Stop'}>
+                {DOOR_STOPS.filter((p) => p.magnetic === mag).map((p) => (
+                  <option key={p.slug} value={p.slug} data-swatch={p.hex}>
+                    {p.finish}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </Field>
+      )}
+      {own > 0 && (
+        <p className="note">
+          {own} interior door{own === 1 ? ' has its' : 's have their'} own door stop setting.{' '}
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              const ids = new Set(interiorDoors.map((o) => o.id));
+              store.update((d) => ({ ...d, openings: d.openings.map((o) => (ids.has(o.id) ? { ...o, doorStop: undefined } : o)) }));
+            }}
+          >
+            Use the house door stop on all
+          </a>
+        </p>
+      )}
+    </>
+  );
+}
+
 /** House style for interior doors. */
 function InteriorDoorSettings({ design }: { design: Design }) {
   const g = design.settings.interiorDoor ?? DEFAULT_INTERIOR_DOOR;
@@ -1312,6 +1676,8 @@ function InteriorDoorSettings({ design }: { design: Design }) {
         </span>
       </Field>
       <ColorField label="Colour" value={g.color} onChange={(c) => setG({ color: c })} paint="timber" />
+      <HouseHandle design={design} interiorDoors={interiorDoors} />
+      <HouseDoorStop design={design} interiorDoors={interiorDoors} />
       <p className="note">
         {interiorDoors.length - own} of {interiorDoors.length} interior door{interiorDoors.length === 1 ? '' : 's'} use this style.
         {own > 0 && (
@@ -1569,10 +1935,155 @@ function DressingOptions({ o, inside }: { o: Opening; inside: boolean }) {
 }
 
 /** Door handle (type, height, finish) and whether the door can open fully without hitting anything. */
-function HandleOptions({ o, w, design }: { o: Opening; w: Wall; design: Design }) {
-  const h = doorHandle(o);
-  const set = (patch: Partial<NonNullable<Opening['handle']>>) => upd('openings', o.id, { handle: { ...h, ...patch } });
-  const checks = checkDoor(design, o, w);
+/** A door stop from ABI Interiors: none, on the wall the door opens back to, or on the floor. */
+function DoorStopOptions({ o, w, design, inside }: { o: Opening; w: Wall; design: Design; inside: boolean }) {
+  // Interior doors with no setting of their own use the house door stop (Interior doors settings).
+  const house = inside ? (design.settings.interiorDoorStop ?? null) : null;
+  const own = o.doorStop;
+  const stop = own ?? house ?? undefined;
+  const active = stop && stop.mount !== 'none' ? stop : undefined;
+  const product = doorStopProduct(stop?.product);
+  const layout = active ? doorStopLayout(design, { ...o, doorStop: active }, w) : [];
+  const fallback = layout.some((l) => l.stop?.fallback);
+  const set = (patch: Partial<DoorStop> | null) =>
+    upd('openings', o.id, { doorStop: patch === null ? undefined : { mount: active?.mount ?? 'wall', product: product.slug, ...patch } });
+  const houseLabel = !house || house.mount === 'none' ? 'none' : `${house.mount}, ${doorStopProduct(house.product).finish}`;
+  return (
+    <>
+      <div className="sub-head">Door stop</div>
+      <Field label="Mount">
+        <span className="presets inline">
+          {inside && (
+            <button className={!own ? 'on' : ''} onClick={() => set(null)} title={`Use the house door stop (${houseLabel}) from the Interior doors settings`}>
+              House
+            </button>
+          )}
+          <button className={inside ? (own?.mount === 'none' ? 'on' : '') : !active ? 'on' : ''} onClick={() => (inside ? set({ mount: 'none' }) : set(null))}>
+            None
+          </button>
+          <button className={own?.mount === 'wall' || (!inside && active?.mount === 'wall') ? 'on' : ''} onClick={() => set({ mount: 'wall' })} title="On the wall the door opens back to, at handle height">
+            Wall
+          </button>
+          <button className={own?.mount === 'floor' || (!inside && active?.mount === 'floor') ? 'on' : ''} onClick={() => set({ mount: 'floor' })} title="On the floor where the door rests when open">
+            Floor
+          </button>
+        </span>
+      </Field>
+      {inside && !own && <p className="note">Using the house door stop: {houseLabel}.</p>}
+      {active && own && (
+        <>
+          <Field label="ABI stop">
+            <select value={product.slug} onChange={(e) => set({ product: e.target.value })}>
+              {[false, true].map((mag) => (
+                <optgroup key={String(mag)} label={mag ? 'Kolton Magnetic Door Stop' : 'Kolton Door Stop'}>
+                  {DOOR_STOPS.filter((p) => p.magnetic === mag).map((p) => (
+                    <option key={p.slug} value={p.slug} data-swatch={p.hex}>
+                      {p.finish}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </Field>
+          <p className="note">
+            {product.description} {DOOR_STOP_SIZE.diameter} mm across, {DOOR_STOP_SIZE.projection} mm projection.{' '}
+            <a href={doorStopUrl(product.slug)} target="_blank" rel="noopener noreferrer">
+              View on ABI Interiors
+            </a>
+          </p>
+          {fallback && <p className="note warn">There’s no wall where this door opens to, so the stop is shown on the floor.</p>}
+        </>
+      )}
+    </>
+  );
+}
+
+/**
+ * Choose a door handle: a generic type (lever, knob, pull…) with its finish, or an ABI Interiors handle (which sets
+ * the type, finish and length). `house`: offer "use the house handle" (interior doors).
+ */
+function HandlePicker({ value, onChange, house, entry }: { value: DoorHandleSpec | undefined; onChange: (v: DoorHandleSpec | undefined) => void; house?: string; entry: boolean }) {
+  const h = doorHandle({ handle: value } as Opening);
+  const product = value?.product ? ABI_HANDLE_BY_SLUG[value.product] : undefined;
+  const key = house !== undefined && !value ? 'house' : product ? `abi:${product.slug}` : `type:${h.type}`;
+  const ranges = [...new Set(ABI_HANDLES.map((x) => x.range))].sort((a, b) => {
+    // Internal handles first on interior doors, entry handles first on outside doors.
+    const ea = ABI_HANDLES.find((x) => x.range === a)!.entry === entry ? 0 : 1;
+    const eb = ABI_HANDLES.find((x) => x.range === b)!.entry === entry ? 0 : 1;
+    return ea - eb || a.localeCompare(b);
+  });
+  const base = { height: h.height };
+  return (
+    <>
+      <Field label="Handle">
+        <select
+          value={key}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === 'house') onChange(undefined);
+            else if (v.startsWith('abi:')) onChange({ ...base, product: v.slice(4) });
+            else onChange({ ...base, type: v.slice(5) as HandleType, finish: product ? HANDLE_DEFAULT.finish : h.finish, length: h.length });
+          }}
+        >
+          {house !== undefined && <option value="house">House handle ({house})</option>}
+          <optgroup label="Generic">
+            {(Object.keys(HANDLES) as HandleType[]).map((k) => (
+              <option key={k} value={`type:${k}`}>
+                {HANDLES[k].name}
+              </option>
+            ))}
+          </optgroup>
+          {ranges.map((r) => (
+            <optgroup key={r} label={`ABI ${r}${ABI_HANDLES.find((x) => x.range === r)!.entry ? ' (entry)' : ''}`}>
+              {ABI_HANDLES.filter((x) => x.range === r).map((x) => (
+                <option key={x.slug} value={`abi:${x.slug}`} data-swatch={x.hex}>
+                  {x.finish || x.range}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </Field>
+      {value && h.type !== 'none' && (
+        <>
+          <NumField label="Handle height" value={h.height} min={600} max={1600} onChange={(v) => onChange({ ...value, height: v })} hint="Floor to the centre of the handle; 900–1100 is usual, 1000 is common" />
+          {!product && (
+            <ColorField
+              label="Finish"
+              value={h.finish}
+              onChange={(c) => onChange({ ...value, finish: c })}
+              swatches={HANDLE_FINISHES.map((f) => f.hex)}
+              names={Object.fromEntries(HANDLE_FINISHES.map((f) => [f.hex, f.name]))}
+            />
+          )}
+          {!product && h.type === 'pull' && <NumField label="Pull length" value={h.length} min={150} max={1800} onChange={(v) => onChange({ ...value, length: v })} />}
+        </>
+      )}
+      {product && (
+        <p className="note">
+          {abiHandleName(product)}
+          {product.dims ? ` — ${product.dims}` : ''}.{' '}
+          <a href={abiHandleUrl(product.slug)} target="_blank" rel="noopener noreferrer">
+            View on ABI Interiors
+          </a>
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Label for the house handle. */
+function houseHandleLabel(spec: DoorHandleSpec | null | undefined) {
+  const p = spec?.product ? ABI_HANDLE_BY_SLUG[spec.product] : undefined;
+  if (p) return `ABI ${abiHandleName(p)}`;
+  return HANDLES[doorHandle({ handle: spec ?? undefined } as Opening).type].name;
+}
+
+function HandleOptions({ o, w, design, inside }: { o: Opening; w: Wall; design: Design; inside: boolean }) {
+  // Interior doors with no handle of their own use the house handle (Interior doors settings).
+  const house = inside ? (design.settings.interiorHandle ?? null) : null;
+  const eff = o.handle || !house ? o : { ...o, handle: house };
+  const checks = checkDoor(design, eff, w);
   const worst = checks.reduce<(typeof checks)[number] | null>((a, c) => (!a || c.maxAngle < a.maxAngle ? c : a), null);
   const blocked = !!worst && worst.maxAngle < MIN_OPEN;
   const fix = blocked ? clearOffset(design, o, w, 1500) : null;
@@ -1580,28 +2091,7 @@ function HandleOptions({ o, w, design }: { o: Opening; w: Wall; design: Design }
   const moveBy = fix !== null ? Math.round(fix - clampOpeningOffset(o, L)) : 0;
   return (
     <div className="room-finishes">
-      <Field label="Handle">
-        <select value={h.type} onChange={(e) => set({ type: e.target.value as HandleType })}>
-          {(Object.keys(HANDLES) as HandleType[]).map((k) => (
-            <option key={k} value={k}>
-              {HANDLES[k].name}
-              {HANDLES[k].projection ? ` (sticks out ${HANDLES[k].projection} mm)` : ''}
-            </option>
-          ))}
-        </select>
-      </Field>
-      {h.type !== 'none' && (
-        <>
-          <NumField label="Handle height" value={h.height} min={600} max={1600} onChange={(v) => set({ height: v })} hint="Floor to the centre of the handle; 900–1100 is usual, 1000 is common" />
-          <ColorField
-            label="Finish"
-            value={h.finish}
-            onChange={(c) => set({ finish: c })}
-            swatches={HANDLE_FINISHES.map((f) => f.hex)}
-            names={Object.fromEntries(HANDLE_FINISHES.map((f) => [f.hex, f.name]))}
-          />
-        </>
-      )}
+      <HandlePicker value={o.handle} onChange={(v) => upd('openings', o.id, { handle: v })} house={inside ? houseHandleLabel(house) : undefined} entry={!inside} />
       {worst &&
         (blocked ? (
           <div className="door-check bad">
@@ -1746,7 +2236,7 @@ function AbiOptions({ it }: { it: Item }) {
       elevation: abiElevation(q),
       // Finishes we can't turn into a colour: white for ceramics, otherwise keep the current colour.
       color: q.hex ?? (cls === 'bath' || cls === 'basin' || cls === 'toilet' ? '#f4f2ee' : it.color),
-      options: { ...(it.options ?? {}), slug: q.slug, group: q.group, finish: q.finish, price: q.price, double: /double/i.test(q.name) ? 1 : 0 },
+      options: { ...(it.options ?? {}), slug: q.slug, group: q.group, finish: q.finish, double: /double/i.test(q.name) ? 1 : 0 },
     });
   };
   if (!mod) return <p className="note">Loading ABI Interiors products…</p>;
@@ -1762,7 +2252,6 @@ function AbiOptions({ it }: { it: Item }) {
                 .map((x) => (
                   <option key={x.slug} value={x.slug} data-swatch={x.hex}>
                     {x.name}
-                    {x.price ? ` · ${x.price}` : ''}
                   </option>
                 ))}
             </optgroup>
@@ -1771,11 +2260,11 @@ function AbiOptions({ it }: { it: Item }) {
       </Field>
       {p ? (
         <p className="note">
-          {[p.finish, `${p.width} × ${p.depth} × ${p.height} mm`, p.price && `${p.price} (when listed)`].filter(Boolean).join(' · ')}. Size and
+          {[p.finish, `${p.width} × ${p.depth} × ${p.height} mm`].filter(Boolean).join(' · ')}. Size and
           height follow ABI&apos;s published dimensions; adjust them above if needed.
         </p>
       ) : (
-        <p className="note">Pick a product to use its real size, finish and price. Type in the list to jump to a name.</p>
+        <p className="note">Pick a product to use its real size and finish. Type in the list to jump to a name.</p>
       )}
     </div>
   );

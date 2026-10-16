@@ -1,9 +1,13 @@
 import * as THREE from 'three';
 import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, SKYLIGHT_DEFAULTS, SOLAR_DEFAULTS, SOLAR_GAP, SOLAR_PANELS, VANITY_DEFAULTS } from '../catalog';
-import { dressingSide, sidelights, stackerLayout } from '../geometry';
+import { DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, dressingSide, sidelights, stackerLayout } from '../geometry';
 import { BACKSET, doorHandle } from '../doorClearance';
 import { humeLayout } from '../humeDoors';
 import type { Item, Opening } from '../types';
+import { DOOR_TRIM, SKIRTINGS } from '../trims';
+import { LG_FRIDGE_BY_TYPE } from '../lgFridges';
+import type { LgFridge } from '../lgFridges';
+import type { OpeningTrim } from '../trims';
 
 // Everything in the 3D scene is in millimetres. Item-local axes: x = width, z = depth
 // (front of the item at +z), y = up, origin at the centre of the footprint on the floor.
@@ -92,6 +96,211 @@ function baseCabinet(b: Builder, it: Item, kind: 'doors' | 'drawers' | 'none' = 
   const zf = d / 2 - 20;
   if (kind === 'doors') fronts(b, w, KICK, h - KICK - TOP, zf, Math.max(1, Math.round(w / 600)), 1, color);
   if (kind === 'drawers') fronts(b, w, KICK, h - KICK - TOP, zf, 1, 3, color);
+}
+
+// ---------- Kaboodle kitchen units (kitchen designer) ----------
+
+/** Height of the legs / kickboard under Kaboodle floor units. */
+export const KB_LEGS = 145;
+
+type KbHandle = 'bar' | 'd' | 'knob' | 'cup' | 'edge' | 'none';
+
+/**
+ * A Kaboodle cabinet, panel or benchtop. What it is and how it's finished come from `it.options` (set by the
+ * kitchen designer): cls, doors, drawers, doorStyle, bench (colour), benchT (thickness), handle, handleHex, handleLen.
+ * Base units' height includes the legs and benchtop; their depth includes the benchtop's 20 mm overhang.
+ */
+function kaboodleUnit(b: Builder, it: Item) {
+  const o = it.options ?? {};
+  const num = (k: string, dflt: number) => (Number.isFinite(Number(o[k])) && o[k] !== '' ? Number(o[k]) : dflt);
+  const cls = String(o.cls ?? 'base');
+  const { width: w, depth: d, height: h, color } = it;
+  const style = String(o.doorStyle ?? 'flat');
+  const benchCol = String(o.bench ?? STONE);
+  const benchT = num('benchT', 33);
+  const handle = String(o.handle ?? 'bar') as KbHandle;
+  const handleCol = String(o.handleHex ?? STEEL);
+  const handleLen = num('handleLen', 160);
+  const doors = Math.max(0, Math.round(num('doors', Math.max(1, Math.round(w / 600)))));
+  const drawers = Math.max(0, Math.round(num('drawers', 0)));
+  const gap = 3;
+  const doorOpts: MatOpts | undefined = style === 'gloss' ? { rough: 0.12 } : style === 'timber' ? { rough: 0.75 } : undefined;
+
+  /** One door / drawer front with its back face at z, plus its handle. */
+  const front = (x: number, y: number, fw: number, fh: number, z: number, kind: 'door' | 'drawer', side: number, place: 'top' | 'bottom' | 'middle') => {
+    const pw = fw - gap;
+    const ph = fh - gap;
+    const py = y + gap / 2;
+    if (pw < 20 || ph < 20) return;
+    if (style === 'shaker' && pw > 220 && ph > 160) {
+      const rail = Math.min(70, pw * 0.18, ph * 0.25);
+      b.box(pw - 2 * rail + 4, ph - 2 * rail + 4, 12, x, py + rail - 2, z + 6, color, doorOpts);
+      for (const sx of [-1, 1]) b.box(rail, ph, 18, x + sx * (pw / 2 - rail / 2), py, z + 9, color, doorOpts);
+      for (const yy of [py, py + ph - rail]) b.box(pw - 2 * rail, rail, 18, x, yy, z + 9, color, doorOpts);
+    } else b.box(pw, ph, 18, x, py, z + 9, color, doorOpts);
+    if (style === 'vgroove')
+      for (let gx = -pw / 2 + 100; gx < pw / 2 - 40; gx += 100) b.box(4, ph - 30, 1, x + gx, py + 15, z + 18.5, shade(color, 0.72));
+    // Handle.
+    const zf = z + 18;
+    const len = Math.min(handleLen, pw * 0.75, kind === 'door' ? ph * 0.6 : pw * 0.75);
+    if (handle === 'none') return;
+    if (handle === 'edge') {
+      b.box(pw * 0.9, 8, 24, x, place === 'bottom' ? py - 4 : py + ph - 4, zf + 2, handleCol, METAL);
+      return;
+    }
+    const knob = handle === 'knob' || (handle === 'cup' && kind === 'door');
+    const hx = kind === 'drawer' ? x : x + side * (pw / 2 - 45);
+    const hy = kind === 'drawer' ? (ph > 300 ? py + ph - 70 : py + ph / 2) : place === 'top' ? py + ph - 60 - (knob ? 0 : len) : place === 'bottom' ? py + 60 : py + ph / 2 - (knob ? 0 : len / 2);
+    if (knob) b.cyl(14, 14, 24, hx, hy, zf + 12, handleCol, METAL).rotateX(Math.PI / 2);
+    else if (handle === 'cup') b.box(Math.min(96, pw * 0.4), 28, 22, hx, hy - 14, zf + 11, handleCol, METAL);
+    else {
+      const out = handle === 'd' ? 32 : 18;
+      if (kind === 'drawer') b.box(len, 12, 12, hx, hy - 6, zf + out, handleCol, METAL);
+      else b.box(12, len, 12, hx, hy, zf + out, handleCol, METAL);
+      if (handle === 'd')
+        for (const s of [-1, 1])
+          kind === 'drawer' ? b.box(8, 8, out, hx + s * (len / 2 - 6), hy - 4, zf + out / 2, handleCol, METAL) : b.box(8, 8, out, hx, hy + (s > 0 ? len - 8 : 0), zf + out / 2, handleCol, METAL);
+    }
+  };
+  /** A row of doors across [y, y + fh]: pairs open from the middle, a single door from its right edge. */
+  const doorRow = (y: number, fh: number, z: number, n: number, place: 'top' | 'bottom' | 'middle') => {
+    const k = Math.max(1, n);
+    for (let c = 0; c < k; c++) {
+      const side = k === 1 ? 1 : c < k / 2 ? 1 : -1;
+      front(-w / 2 + (w / k) * (c + 0.5), y, w / k, fh, z, 'door', side, place);
+    }
+  };
+  /** Drawers stacked in [y, y + fh], deeper ones at the bottom. */
+  const drawerStack = (y: number, fh: number, z: number, n: number) => {
+    const weights = n === 3 ? [0.4, 0.35, 0.25] : Array.from({ length: n }, () => 1 / n);
+    let yy = y;
+    for (const f of weights) {
+      front(0, yy, w, fh * f, z, 'drawer', 1, 'middle');
+      yy += fh * f;
+    }
+  };
+
+  switch (cls) {
+    case 'benchtop':
+      b.box(w, h, d, 0, 0, 0, benchCol, { rough: 0.5 });
+      return;
+    case 'panel':
+    case 'kickboard':
+      b.box(w, h, d, 0, 0, 0, color, doorOpts);
+      return;
+    case 'wall':
+    case 'wall_corner':
+    case 'rangehood':
+    case 'fridge': {
+      // Hung on the wall: carcass at the back, doors on the front.
+      const cd = d - 18;
+      b.box(w, h, cd, 0, 0, -d / 2 + cd / 2, color);
+      const z = -d / 2 + cd;
+      if (cls === 'rangehood') {
+        // Undermount rangehood in the bottom of the cabinet.
+        b.box(w - 40, 60, cd - 20, 0, -60, -d / 2 + cd / 2, STEEL, METAL);
+        doorRow(0, h, z, doors || 1, 'bottom');
+      } else doorRow(0, h, z, doors || 1, 'bottom');
+      return;
+    }
+    case 'oven_tower':
+      if (h < 1500) {
+        // Microwave box: a carcass round a dark appliance front, sitting up in a tower.
+        b.box(w, h, d - 18, 0, 0, -9, color);
+        b.box(w - 8, h - 8, 18, 0, 4, d / 2 - 9, '#1c1c1e', { rough: 0.15 });
+        return;
+      }
+    // falls through
+    case 'tall': {
+      const cd = d - 18;
+      b.box(w - 10, KB_LEGS - 10, 16, 0, 0, -d / 2 + cd - 60, shade(color, 0.85));
+      b.box(w, h - KB_LEGS, cd, 0, KB_LEGS, -d / 2 + cd / 2, color);
+      const z = -d / 2 + cd;
+      const H = h - KB_LEGS;
+      if (cls === 'oven_tower') {
+        drawerStack(KB_LEGS, 700, z, Math.max(2, drawers || 2));
+        b.box(w - 8, 590, 18, 0, KB_LEGS + 710, z + 9, '#1c1c1e', { rough: 0.15 });
+        b.box(w - 8, 400, 18, 0, KB_LEGS + 1310, z + 9, '#1c1c1e', { rough: 0.15 });
+        b.box(w * 0.6, 12, 14, 0, KB_LEGS + 1240, z + 25, STEEL, METAL);
+        if (H > 1730) doorRow(KB_LEGS + 1720, H - 1720, z, 1, 'bottom');
+      } else if (H > 1600) {
+        const low = Math.round(H * 0.62);
+        doorRow(KB_LEGS, low, z, doors || 1, 'top');
+        doorRow(KB_LEGS + low, H - low, z, doors || 1, 'bottom');
+      } else doorRow(KB_LEGS, H, z, doors || 1, 'middle');
+      return;
+    }
+    default: {
+      // Floor units under the bench: legs + kickboard, carcass, fronts, benchtop.
+      const cd = d - 20 - 18;
+      const body = h - KB_LEGS - benchT;
+      const z = -d / 2 + cd;
+      b.box(w - 10, KB_LEGS - 10, 16, 0, 0, z - 60, shade(color, 0.85));
+      b.box(w, body, cd, 0, KB_LEGS, -d / 2 + cd / 2, cls === 'dishwasher' ? '#d9dcdf' : color);
+      b.box(w, benchT, d, 0, h - benchT, 0, benchCol, { rough: 0.5 });
+      if (cls === 'drawer') drawerStack(KB_LEGS, body, z, Math.max(1, drawers || 3));
+      else if (cls === 'cooktop') {
+        front(0, KB_LEGS + body - 150, w, 150, z, 'drawer', 1, 'middle');
+        b.box(w - 8, body - 160, 18, 0, KB_LEGS + 4, z + 9, '#1c1c1e', { rough: 0.15 });
+        b.box(w * 0.6, 12, 14, 0, KB_LEGS + body - 210, z + 25, STEEL, METAL);
+        b.box(w - 60, 6, d - 100, 0, h, 0, '#101010', { rough: 0.1 });
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.cyl(70, 70, 3, (sx * w) / 4.5, h + 6, (sz * d) / 4.5, '#3a3a3a');
+      } else if (cls === 'dishwasher') front(0, KB_LEGS, w, body, z, 'drawer', 1, 'middle');
+      else if (drawers > 0 && doors > 0) {
+        drawerStack(KB_LEGS + body - 150, 150, z, 1);
+        doorRow(KB_LEGS, body - 150, z, doors, 'top');
+      } else if (drawers > 0) drawerStack(KB_LEGS, body, z, drawers);
+      else doorRow(KB_LEGS, body, z, doors || 1, 'top');
+      if (cls === 'sink') {
+        b.box(Math.min(w - 100, 760), 3, d * 0.55, 0, h, 10, '#8e959c', METAL);
+        b.box(Math.min(w - 100, 760) - 30, 2, d * 0.55 - 30, 0, h + 2, 10, '#5d646b', METAL);
+        b.cyl(18, 18, 260, 0, h, -d / 2 + 70, STEEL, METAL);
+        b.box(24, 24, 180, 0, h + 236, -d / 2 + 150, STEEL, METAL);
+      }
+      return;
+    }
+  }
+}
+
+/**
+ * LG French door fridge: two doors over one or two freezer drawers, with the model's features on the front
+ * (ice & water dispenser, InstaView glass panel, Door-in-Door, MoodUP colour panels).
+ */
+function lgFridge(b: Builder, it: Item, f: LgFridge) {
+  const { width: w, depth: d, height: h, color } = it;
+  const dark = /black/i.test(f.finish);
+  const handleCol = dark ? '#2b2b2c' : '#c9ccd0';
+  const finish: MatOpts = /matte/i.test(f.finish) ? { rough: 0.6 } : METAL;
+  const doorT = 50;
+  const bodyD = d - doorT - 30; // handles stand out ~30 mm
+  b.box(w, h, bodyD, 0, 0, -d / 2 + bodyD / 2, color, finish);
+  const z = -d / 2 + bodyD; // back of the doors
+  const split = Math.round(h * (f.drawers === 2 ? 0.55 : 0.6)); // bottom of the fridge doors
+  const top = h - split - 4;
+  const upper = f.features.includes('moodup') ? '#cfe0ee' : color;
+  const lower = f.features.includes('moodup') ? '#efd9e2' : color;
+  // Fridge doors.
+  for (const sx of [-1, 1]) {
+    b.box(w / 2 - 3, top, doorT, (sx * w) / 4, split + 2, z + doorT / 2, upper, finish);
+    b.box(16, Math.min(700, top * 0.6), 30, sx * 40, split + top * 0.2, z + doorT + 15, handleCol, METAL);
+  }
+  // Freezer drawer(s).
+  const dh = (split - 20) / f.drawers;
+  for (let i = 0; i < f.drawers; i++) {
+    const y = 10 + i * dh;
+    b.box(w - 4, dh - 6, doorT, 0, y + 3, z + doorT / 2, lower, finish);
+    b.box(w * 0.55, 16, 30, 0, y + dh - 60, z + doorT + 15, handleCol, METAL);
+  }
+  const front = z + doorT;
+  // Ice & water dispenser on the left door.
+  if (f.features.includes('ice')) {
+    b.box(230, 340, 6, -w / 4, split + top * 0.3, front + 1, '#1d1e20', { rough: 0.3 });
+    b.box(150, 70, 4, -w / 4, split + top * 0.3 + 250, front + 4, '#3c3e42', { rough: 0.2 });
+  }
+  // InstaView: a dark glass panel on the right door (knock twice to see in).
+  if (f.features.includes('instaview')) b.box(w / 2 - 120, top * 0.55, 4, w / 4, split + top * 0.3, front + 1, '#1b1d20', { rough: 0.08, metal: 0.2 });
+  // Door-in-Door: the inner door's outline on the right door.
+  else if (f.features.includes('did')) b.box(w / 2 - 140, top * 0.55, 3, w / 4 + 10, split + top * 0.3, front + 1, shade(color, 0.86), finish);
 }
 
 function sofa(b: Builder, w: number, d: number, h: number, color: string, seats: number) {
@@ -226,6 +435,9 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       });
       break;
     }
+    case 'kaboodle':
+      kaboodleUnit(b, it);
+      break;
     case 'bar_stool': {
       b.cyl(w * 0.32, w * 0.36, 20, 0, 0, 0, DARK, METAL);
       b.cyl(22, 22, h - 70, 0, 20, 0, STEEL, METAL);
@@ -589,9 +801,15 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       break;
     }
     case 'column':
+      // Holding up the roof: runs up to the top of the walls.
+      b.box(w, ctx.plate ? ctx.plate - it.elevation : h, d, 0, 0, 0, color);
+      break;
     case 'box':
-    default:
-      b.box(w, h, d, 0, 0, 0, color);
+    default: {
+      const lg = LG_FRIDGE_BY_TYPE[it.type];
+      if (lg) lgFridge(b, it, lg);
+      else b.box(w, h, d, 0, 0, 0, color);
+    }
   }
   return g;
 }
@@ -600,7 +818,17 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
  * Build a door/window in wall-local space: x along the wall (centre of the opening at x = 0),
  * z along the wall normal, y up. `t` is the wall thickness.
  */
-export function buildOpening(o: Opening, t: number, wallHeight: number, m: MatFn, cutHeight: number, outside?: number): THREE.Group {
+export function buildOpening(
+  o: Opening,
+  t: number,
+  wallHeight: number,
+  m: MatFn,
+  cutHeight: number,
+  outside?: number,
+  trimSpec: OpeningTrim = { type: 'square66', width: DOOR_TRIM, profile: SKIRTINGS.square66 },
+  /** How far each hinged leaf opens (degrees, in doorLeaves order): fully (90°) unless something's in the way. */
+  leafOpen: number[] = [],
+): THREE.Group {
   const g = new THREE.Group();
   const b = new Builder(g, m);
   const w = o.width;
@@ -646,13 +874,67 @@ export function buildOpening(o: Opening, t: number, wallHeight: number, m: MatFn
       if (visible(headY - STOP_D)) b.box(ww - 2 * JAMB, STOP_D, STOP_W, cx, headY - STOP_D, stopZ, trim);
     }
   };
-  /** Architraves (66 × 18) round the whole opening on faces that aren't the outside of the house. */
-  const architraves = () => {
+  /**
+   * Architraves round the opening on faces that aren't the outside of the house: the chosen profile (a skirting
+   * section, scaled to the trim's width) up both sides and across the head, mitred at the corners, lapping 10 mm
+   * over the jamb. `apronY`: windows with a sill get a length under it, its top edge here. `frame`: the trim also
+   * runs along the bottom, mitred into the sides (windows without a sill).
+   */
+  const architraves = (bottom = y0, lap = 10, apronY?: number, frame = false) => {
+    const A = trimSpec.width;
+    if (A <= 0 || !trimSpec.profile.points.length) return;
+    const shadow = !!trimSpec.profile.shadow;
+    const across = shadow ? 10 : A; // a shadow line is just a narrow dark gap
+    const pts = trimSpec.profile.points;
+    const ph = Math.max(...pts.map((p) => p[1])) || 1;
+    // Profile [out from the wall, height] → [across from the outer edge, out from the wall].
+    const shape = new THREE.Shape(pts.map(([out, h]) => new THREE.Vector2((h / ph) * across, out)));
+    const mat = m(shadow ? '#2b2b2b' : trim);
+    const inner = w / 2 - lap; // inner edge, from the centre
+    const headIn = y0 + oh - lap;
+    const fits = headIn + across <= wallHeight; // room for the head below the ceiling
+    const headOn = fits && visible(headIn + across);
+    const sideTop = Math.min(headOn ? headIn + across : Math.min(headIn, wallHeight), cutHeight);
     for (const face of [-1, 1]) {
       if (outside !== undefined && face === outside) continue;
-      const z = face * (t / 2 + 9);
-      for (const sx of [-1, 1]) b.box(66, Math.min(oh + 56, cutHeight - y0), 18, sx * (w / 2 + 23), y0, z, trim);
-      if (visible(y0 + oh - 10)) b.box(w + 112, 66, 18, 0, y0 + oh - 10, z, trim);
+      const out = new THREE.Vector3(0, 0, face);
+      /** One length: outer edge from p0 along u for len, `c` pointing across towards the opening; mitred ends k0/k1. */
+      const piece = (p0: THREE.Vector3, u: THREE.Vector3, c: THREE.Vector3, len: number, k0: number, k1: number) => {
+        if (len <= 1) return;
+        // Keep the basis right-handed (c × out = u) so faces aren't turned inside out: run it the other way if not.
+        if (new THREE.Vector3().crossVectors(c, out).dot(u) < 0) {
+          p0 = p0.clone().addScaledVector(u, len);
+          u = u.clone().negate();
+          [k0, k1] = [k1, k0];
+        }
+        const geo = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, curveSegments: 4 });
+        const pos = geo.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const z = pos.getZ(i);
+          if (z < 0.01) pos.setZ(i, z + k0 * x);
+          else if (z > len - 0.01) pos.setZ(i, z - k1 * x);
+        }
+        geo.applyMatrix4(new THREE.Matrix4().makeBasis(c, out, u).setPosition(p0.x, p0.y, p0.z + face * (t / 2)));
+        geo.computeVertexNormals();
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        g.add(mesh);
+      };
+      const up = new THREE.Vector3(0, 1, 0);
+      const right = new THREE.Vector3(1, 0, 0);
+      const mitre = headOn && sideTop === headIn + across ? 1 : 0;
+      const sillIn = y0 + lap; // frame: inner edge of the bottom length
+      const frameOn = frame && sillIn - across > 0 && visible(sillIn);
+      const base = frameOn ? sillIn - across : bottom;
+      const k0 = frameOn ? 1 : 0;
+      piece(new THREE.Vector3(-inner - across, base, 0), up, right, sideTop - base, k0, mitre);
+      piece(new THREE.Vector3(inner + across, base, 0), up, right.clone().negate(), sideTop - base, k0, mitre);
+      if (frameOn) piece(new THREE.Vector3(-inner - across, base, 0), right, up, 2 * (inner + across), 1, 1);
+      if (headOn) piece(new THREE.Vector3(-inner - across, headIn + across, 0), right, up.clone().negate(), 2 * (inner + across), 1, 1);
+      if (apronY !== undefined && apronY - across > 0 && visible(apronY - across))
+        piece(new THREE.Vector3(-inner - across, apronY - across, 0), right, up, 2 * (inner + across), 0, 0);
     }
   };
   const jambs = (withStop: boolean) => {
@@ -698,7 +980,7 @@ export function buildOpening(o: Opening, t: number, wallHeight: number, m: MatFn
       architraves();
       if (sl.left > 0) sidelightPanel(-w / 2, dx0);
       if (sl.right > 0) sidelightPanel(dx1, w / 2);
-      leaf(o.hingeEnd ? dx1 - JAMB - 3 : dx0 + JAMB + 3, o.hingeEnd ? -1 : 1, dx1 - dx0 - 2 * JAMB - 6, THREE.MathUtils.degToRad(70));
+      leaf(o.hingeEnd ? dx1 - JAMB - 3 : dx0 + JAMB + 3, o.hingeEnd ? -1 : 1, dx1 - dx0 - 2 * JAMB - 6, THREE.MathUtils.degToRad(leafOpen[0] ?? 90));
       if (DOOR_DESIGNS[o.design ?? '']?.layout === 'ivy_arch') {
         // Arched door in a square frame: fill the two corners above the arch (spandrels) in the trim colour.
         const iw = dx1 - dx0 - 2 * JAMB;
@@ -723,8 +1005,9 @@ export function buildOpening(o: Opening, t: number, wallHeight: number, m: MatFn
     }
     case 'double_door':
       jambs(true);
-      leaf(-w / 2 + JAMB + 3, 1, w / 2 - JAMB - 5, THREE.MathUtils.degToRad(75));
-      leaf(w / 2 - JAMB - 3, -1, w / 2 - JAMB - 5, THREE.MathUtils.degToRad(75));
+      // Two leaves with DOOR_GAP at each edge and between them.
+      leaf(-w / 2 + JAMB + DOOR_GAP, 1, doubleDoorLeaf(w), THREE.MathUtils.degToRad(leafOpen[0] ?? 90));
+      leaf(w / 2 - JAMB - DOOR_GAP, -1, doubleDoorLeaf(w), THREE.MathUtils.degToRad(leafOpen[1] ?? 90));
       break;
     case 'cavity_door': {
       jambs(false);
@@ -792,7 +1075,13 @@ export function buildOpening(o: Opening, t: number, wallHeight: number, m: MatFn
       b.box(fw, hh, fd, w / 2 - fw / 2, y0, 0, col);
       if (w > 1000) b.box(fw * 0.8, hh, fd * 0.8, 0, y0, 0, col);
       b.box(w - 2 * fw, hh - 2 * fw, 8, 0, y0 + fw, 0, '#bfe3f0', GLASS);
-      b.box(w + 60, 25, t + 60, 0, y0 - 25, 0, '#e9e6df');
+      if (o.windowSill !== false) {
+        // Sill: reaches a little past the trim either side.
+        const at = trimSpec.width > 0 && trimSpec.profile.points.length ? trimSpec.width : 0;
+        b.box(w + Math.max(60, 2 * at + 40), 25, t + 60, 0, y0 - 25, 0, '#e9e6df');
+        // Trim round the inside: up both sides from the sill, across the head and a length under the sill.
+        architraves(y0, 0, y0 - 25);
+      } else architraves(y0, 0, undefined, true); // no sill: trim right round, like a picture frame
       break;
     }
     case 'opening':
@@ -990,7 +1279,7 @@ function garageDoor(b: Builder, o: Opening, w: number, oh: number, y0: number, t
 }
 
 // ---------- Doors: jambs and leaf designs ----------
-const JAMB = 32; // jamb lining thickness
+const JAMB = DOOR_JAMB; // jamb lining thickness
 const STOP_W = 37; // door stop width (across the wall)
 const STOP_D = 12; // how far the stop stands out from the jamb
 
@@ -1964,19 +2253,33 @@ function drawHandle(b: Builder, o: Opening, dir: number, lw: number) {
       neck.rotation.x = Math.PI / 2;
       neck.position.set(x, y, out(30));
       b.box(120, 16, 18, x - dir * 52, y - 8, out(58), fin, met); // lever towards the hinge
+    } else if (h.type === 'halfmoon') {
+      // Half-moon pull: a solid half disc (e.g. 205 × 102.5 mm), curved side towards the hinge, 50 mm off the door.
+      const r = (h.length > 0 && h.length < 400 ? h.length : 205) / 2;
+      const geo = new THREE.CylinderGeometry(r, r, 50, 24, 1, false, 0, Math.PI); // half disc on +x, axis up
+      geo.rotateX(Math.PI / 2); // flat on the door, curved side +x
+      if (dir > 0) geo.rotateZ(Math.PI); // curved side towards the hinge
+      const mesh = new THREE.Mesh(geo, b.m(fin, met));
+      mesh.position.set(x + dir * 30, y, out(25));
+      mesh.castShadow = true;
+      b.g.add(mesh);
+      // The flat face (rose) sits on the door, so no rose disc needed.
+      rose.visible = false;
     } else if (h.type === 'knob') {
       const neck = b.cyl(10, 12, 25, x, 0, 0, fin, met);
       neck.rotation.x = Math.PI / 2;
       neck.position.set(x, y, out(20));
       b.sphere(28, x, y, out(40), fin, met);
     } else {
-      // D pull: a vertical bar on two stand-offs.
-      for (const dy of [-130, 130]) {
+      // D pull: a vertical bar (its length) on two stand-offs.
+      const len = Math.max(150, h.length);
+      rose.visible = false;
+      for (const dy of [-(len / 2 - 40), len / 2 - 40]) {
         const st = b.cyl(8, 8, 60, x, 0, 0, fin, met);
         st.rotation.x = Math.PI / 2;
         st.position.set(x, y + dy, out(34));
       }
-      b.cyl(11, 11, 320, x, y - 160, out(66), fin, met);
+      b.cyl(11, 11, len, x, y - len / 2, out(66), fin, met);
     }
   }
 }
