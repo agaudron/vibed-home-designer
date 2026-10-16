@@ -1013,7 +1013,8 @@ export function buildOpening(
       jambs(false);
       const lw = w - 80;
       const dir = o.hingeEnd ? 1 : -1;
-      b.box(lw, Math.min(oh - 45, cutHeight - y0), 38, dir * (lw * 0.6), y0, 0, col);
+      // Fully open: slid into the wall pocket with its leading edge flush with the jamb face.
+      b.box(lw, Math.min(oh - 45, cutHeight - y0), 38, dir * (w / 2 - JAMB + lw / 2), y0, 0, col);
       break;
     }
     case 'sliding_door': {
