@@ -1,5 +1,4 @@
 import { HUME_MODELS, humeKey } from './humeDoors';
-import { LG_FRIDGES, lgFridgeType } from './lgFridges';
 import type { DoorDesign, GarageStyle, OpeningKind } from './types';
 
 export interface ItemDef {
@@ -68,6 +67,20 @@ const FABRIC = '#7d8a96';
 const ABI_HOME: ProductLink = { url: 'https://www.abiinteriors.com.au/', label: 'ABI Interiors' };
 const PANASONIC_Z80: ProductLink = { url: 'https://www.panasonic.com/au/hvac/products/air-conditioner/rac/z-akr/cu-cs-z80ykr.html', label: 'Panasonic' };
 
+export type FridgeStyle = 'french' | 'single' | 'top' | 'bottom' | 'side' | 'bar';
+
+/** Common fridge layouts and sizes. 'fridge' is the standard French door (the type older designs used). */
+export const FRIDGES: { type: string; name: string; style: FridgeStyle; width: number; depth: number; height: number; litres: string }[] = [
+  { type: 'fridge_bar', name: 'Bar fridge', style: 'bar', width: 480, depth: 520, height: 840, litres: '~120 L' },
+  { type: 'fridge_single', name: 'Single door fridge', style: 'single', width: 600, depth: 700, height: 1720, litres: '~380 L' },
+  { type: 'fridge_top', name: 'Top mount fridge', style: 'top', width: 700, depth: 720, height: 1720, litres: '~400 L' },
+  { type: 'fridge_bottom', name: 'Bottom mount fridge', style: 'bottom', width: 700, depth: 720, height: 1800, litres: '~420 L' },
+  { type: 'fridge_slim_french', name: 'Slim French door fridge', style: 'french', width: 835, depth: 730, height: 1790, litres: '~500 L' },
+  { type: 'fridge', name: 'French door fridge', style: 'french', width: 910, depth: 750, height: 1790, litres: '~650 L' },
+  { type: 'fridge_side', name: 'Side by side fridge', style: 'side', width: 910, depth: 730, height: 1790, litres: '~600 L' },
+];
+export const FRIDGE_STYLE: Record<string, FridgeStyle> = Object.fromEntries(FRIDGES.map((f) => [f.type, f.style]));
+
 export const ITEMS: ItemDef[] = [
   // Kitchen
   { type: 'base_cabinet', name: 'Base cabinet', category: 'Kitchen', width: 600, depth: 600, height: 900, color: WHITE },
@@ -78,10 +91,11 @@ export const ITEMS: ItemDef[] = [
   { type: 'dishwasher', name: 'Dishwasher', category: 'Kitchen', width: 600, depth: 600, height: 900, color: STEEL },
   { type: 'tall_cabinet', name: 'Pantry / tall cabinet', category: 'Kitchen', width: 600, depth: 600, height: 2250, color: WHITE },
   { type: 'oven_tower', name: 'Oven tower', category: 'Kitchen', width: 600, depth: 600, height: 2250, color: WHITE },
-  { type: 'fridge', name: 'Fridge', category: 'Kitchen', width: 900, depth: 720, height: 1800, color: STEEL },
   { type: 'wall_cabinet', name: 'Wall cabinet', category: 'Kitchen', width: 600, depth: 350, height: 720, elevation: 1500, color: WHITE },
   { type: 'rangehood', name: 'Rangehood', category: 'Kitchen', width: 900, depth: 500, height: 900, elevation: 1550, color: STEEL },
   { type: 'island', name: 'Kitchen island', category: 'Kitchen', width: 2400, depth: 1000, height: 900, color: WHITE },
+  // Fridges: typical Australian sizes (W × D × H, depth including handles). Check the actual model's cavity needs.
+  ...FRIDGES.map((f) => ({ type: f.type, name: f.name, category: 'Fridges', width: f.width, depth: f.depth, height: f.height, color: STEEL })),
   { type: 'bar_stool', name: 'Bar stool', category: 'Kitchen', width: 420, depth: 420, height: 750, color: '#3b3b3b' },
 
   // Bedroom
@@ -189,17 +203,6 @@ export const ITEMS: ItemDef[] = [
   { type: 'bench_seat', name: 'Built-in bench', category: 'Structure', width: 1500, depth: 450, height: 450, color: WOOD },
   { type: 'box', name: 'Custom block', category: 'Structure', width: 1000, depth: 600, height: 900, color: '#c9c3b8' },
   { type: 'car', name: 'Car', category: 'Structure', width: 1850, depth: 4700, height: 1500, color: '#8c2f2f' },
-  // LG French door fridges, one per model (LG's published size, finish and photo).
-  ...LG_FRIDGES.map((f) => ({
-    type: lgFridgeType(f.model),
-    name: `LG ${f.litres}L ${f.short} – ${f.finish}`,
-    category: 'LG fridges',
-    width: f.width,
-    depth: f.depth,
-    height: f.height,
-    color: f.hex,
-    link: { url: f.url, label: `LG ${f.model}` },
-  })),
   // Kaboodle units are placed from the kitchen designer (which product it is lives in the item's options).
   { type: 'kaboodle', name: 'Kaboodle cabinet', category: KITCHEN_DESIGNER, width: 600, depth: 600, height: 903, color: '#f4f4f2', link: { url: 'https://www.kaboodle.com.au/', label: 'Kaboodle' } },
 ];

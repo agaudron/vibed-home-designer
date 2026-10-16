@@ -3,7 +3,7 @@ import { KABOODLE_BENCHTOPS, KABOODLE_DOORS, KABOODLE_HANDLES, KABOODLE_HOME, KA
 import type { KaboodleClass, KaboodleDoor, KaboodleProduct } from '../kaboodle';
 import { CLASS_NAMES, closeKitchenDesigner, kaboodlePreset, kitchenItems, kitchenStyle, setKitchenStyle, styleParts } from '../kitchen';
 import { store, useStore } from '../store';
-import { LG_FRIDGES, lgFridgeType } from '../lgFridges';
+import { FRIDGES } from '../catalog';
 
 /** A door's profile ("Modern", "Heritage"…) and its colour name without the profile. */
 const profileOf = (d: KaboodleDoor) => d.range.split('·').pop()!.trim();
@@ -34,9 +34,9 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
     return [...out.entries()];
   }, [q]);
 
-  const lgFridges = useMemo(() => {
+  const fridges = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return LG_FRIDGES.filter((f) => !s || `lg fridge ${f.name} ${f.model} ${f.finish} ${f.litres}`.toLowerCase().includes(s));
+    return FRIDGES.filter((f) => !s || `fridge ${f.name} ${f.width}`.toLowerCase().includes(s));
   }, [q]);
 
   // Shopping list: each product with how many are in the kitchen.
@@ -171,38 +171,33 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
             )}
           </div>
         ))}
-        {lgFridges.length > 0 && (
+        {fridges.length > 0 && (
           <div className="cat-group">
-            <button className="cat-head" onClick={() => setOpen((c) => ({ ...c, lg: !c.lg }))}>
-              <span className={`caret${open.lg || q ? ' open' : ''}`}>▸</span>
-              LG French door fridges
-              <span className="kd-count">{lgFridges.length}</span>
+            <button className="cat-head" onClick={() => setOpen((c) => ({ ...c, fridges: !c.fridges }))}>
+              <span className={`caret${open.fridges || q ? ' open' : ''}`}>▸</span>
+              Fridges
+              <span className="kd-count">{fridges.length}</span>
             </button>
-            {(open.lg || q) && (
+            {(open.fridges || q) && (
               <div className="kd-list">
-                {lgFridges.map((f) => {
-                  const type = lgFridgeType(f.model);
-                  return (
-                    <button
-                      key={f.model}
-                      className={`kd-unit${tool.kind === 'place' && tool.itemType === type ? ' active' : ''}`}
-                      onClick={() => store.setTool({ kind: 'place', itemType: type })}
-                      title={`${f.name} (${f.model})`}
-                    >
-                      <span className="kd-unit-name">
-                        {f.litres}L {f.short} – {f.finish}
-                      </span>
-                      <span className="kd-unit-meta">
-                        {f.width} × {f.depth} × {f.height} · {f.model}
-                      </span>
-                    </button>
-                  );
-                })}
+                {fridges.map((f) => (
+                  <button
+                    key={f.type}
+                    className={`kd-unit${tool.kind === 'place' && tool.itemType === f.type ? ' active' : ''}`}
+                    onClick={() => store.setTool({ kind: 'place', itemType: f.type })}
+                    title={`${f.name}, ${f.litres}. Typical size; check your model's cavity needs.`}
+                  >
+                    <span className="kd-unit-name">{f.name}</span>
+                    <span className="kd-unit-meta">
+                      {f.width} × {f.depth} × {f.height} · {f.litres}
+                    </span>
+                  </button>
+                ))}
               </div>
             )}
           </div>
         )}
-        {!groups.length && !lgFridges.length && <p className="note">Nothing matches “{q}”.</p>}
+        {!groups.length && !fridges.length && <p className="note">Nothing matches “{q}”.</p>}
 
         <div className="kd-section kd-shopping">
           <div className="kd-label">Shopping list</div>

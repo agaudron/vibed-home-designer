@@ -1,12 +1,11 @@
 import * as THREE from 'three';
-import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, SKYLIGHT_DEFAULTS, SOLAR_DEFAULTS, SOLAR_GAP, SOLAR_PANELS, VANITY_DEFAULTS } from '../catalog';
+import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, FRIDGE_STYLE, SKYLIGHT_DEFAULTS, SOLAR_DEFAULTS, SOLAR_GAP, SOLAR_PANELS, VANITY_DEFAULTS } from '../catalog';
+import type { FridgeStyle } from '../catalog';
 import { DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, dressingSide, sidelights, stackerLayout } from '../geometry';
 import { BACKSET, doorHandle } from '../doorClearance';
 import { humeLayout } from '../humeDoors';
 import type { Item, Opening } from '../types';
 import { DOOR_TRIM, SKIRTINGS } from '../trims';
-import { LG_FRIDGE_BY_TYPE } from '../lgFridges';
-import type { LgFridge } from '../lgFridges';
 import type { OpeningTrim } from '../trims';
 
 // Everything in the 3D scene is in millimetres. Item-local axes: x = width, z = depth
@@ -263,44 +262,54 @@ function kaboodleUnit(b: Builder, it: Item) {
 }
 
 /**
- * LG French door fridge: two doors over one or two freezer drawers, with the model's features on the front
- * (ice & water dispenser, InstaView glass panel, Door-in-Door, MoodUP colour panels).
+ * A fridge in one of the common layouts: French door (two doors over a freezer drawer), single door, top or
+ * bottom mount (fridge and freezer doors), side by side, or an under-bench bar fridge.
  */
-function lgFridge(b: Builder, it: Item, f: LgFridge) {
+function fridge(b: Builder, it: Item, style: FridgeStyle) {
   const { width: w, depth: d, height: h, color } = it;
-  const dark = /black/i.test(f.finish);
-  const handleCol = dark ? '#2b2b2c' : '#c9ccd0';
-  const finish: MatOpts = /matte/i.test(f.finish) ? { rough: 0.6 } : METAL;
-  const doorT = 50;
+  const handleCol = '#8a8d91';
+  const doorT = 40;
   const bodyD = d - doorT - 30; // handles stand out ~30 mm
-  b.box(w, h, bodyD, 0, 0, -d / 2 + bodyD / 2, color, finish);
-  const z = -d / 2 + bodyD; // back of the doors
-  const split = Math.round(h * (f.drawers === 2 ? 0.55 : 0.6)); // bottom of the fridge doors
-  const top = h - split - 4;
-  const upper = f.features.includes('moodup') ? '#cfe0ee' : color;
-  const lower = f.features.includes('moodup') ? '#efd9e2' : color;
-  // Fridge doors.
-  for (const sx of [-1, 1]) {
-    b.box(w / 2 - 3, top, doorT, (sx * w) / 4, split + 2, z + doorT / 2, upper, finish);
-    b.box(16, Math.min(700, top * 0.6), 30, sx * 40, split + top * 0.2, z + doorT + 15, handleCol, METAL);
+  b.box(w, h, bodyD, 0, 0, -d / 2 + bodyD / 2, color, METAL);
+  const z = -d / 2 + bodyD + doorT / 2; // centre of the doors
+  const hz = z + doorT / 2 + 15; // handles
+  /** A door over [y, y + dh] and [x - dw/2, x + dw/2], with a vertical handle at hx (or a bar handle along the top/bottom). */
+  const door = (x: number, dw: number, y: number, dh: number, hx: number | null, bar?: 'top' | 'bottom') => {
+    b.box(dw - 4, dh - 4, doorT, x, y + 2, z, color, METAL);
+    if (hx !== null) b.box(16, Math.min(600, dh * 0.6), 30, hx, y + dh * 0.2, hz, handleCol, METAL);
+    if (bar) b.box(dw * 0.55, 16, 30, x, bar === 'top' ? y + dh - 60 : y + 40, hz, handleCol, METAL);
+  };
+  const base = 10; // toe gap under the doors
+  const H = h - base;
+  switch (style) {
+    case 'french': {
+      const split = base + Math.round(H * 0.38);
+      for (const sx of [-1, 1]) door((sx * w) / 4, w / 2, split, h - split, sx * 40);
+      door(0, w, base, split - base, null, 'top');
+      break;
+    }
+    case 'side':
+      // Freezer on the left (narrower), fridge on the right, both full height.
+      door(-w / 2 + (w * 0.42) / 2, w * 0.42, base, H, -w / 2 + w * 0.42 - 40);
+      door(w / 2 - (w * 0.58) / 2, w * 0.58, base, H, -w / 2 + w * 0.42 + 40);
+      break;
+    case 'top': {
+      const split = base + Math.round(H * 0.72);
+      door(0, w, split, h - split, -w / 2 + 50);
+      door(0, w, base, split - base, -w / 2 + 50);
+      break;
+    }
+    case 'bottom': {
+      const split = base + Math.round(H * 0.32);
+      door(0, w, split, h - split, -w / 2 + 50);
+      door(0, w, base, split - base, null, 'top');
+      break;
+    }
+    case 'single':
+    case 'bar':
+      door(0, w, base, H, -w / 2 + 50);
+      break;
   }
-  // Freezer drawer(s).
-  const dh = (split - 20) / f.drawers;
-  for (let i = 0; i < f.drawers; i++) {
-    const y = 10 + i * dh;
-    b.box(w - 4, dh - 6, doorT, 0, y + 3, z + doorT / 2, lower, finish);
-    b.box(w * 0.55, 16, 30, 0, y + dh - 60, z + doorT + 15, handleCol, METAL);
-  }
-  const front = z + doorT;
-  // Ice & water dispenser on the left door.
-  if (f.features.includes('ice')) {
-    b.box(230, 340, 6, -w / 4, split + top * 0.3, front + 1, '#1d1e20', { rough: 0.3 });
-    b.box(150, 70, 4, -w / 4, split + top * 0.3 + 250, front + 4, '#3c3e42', { rough: 0.2 });
-  }
-  // InstaView: a dark glass panel on the right door (knock twice to see in).
-  if (f.features.includes('instaview')) b.box(w / 2 - 120, top * 0.55, 4, w / 4, split + top * 0.3, front + 1, '#1b1d20', { rough: 0.08, metal: 0.2 });
-  // Door-in-Door: the inner door's outline on the right door.
-  else if (f.features.includes('did')) b.box(w / 2 - 140, top * 0.55, 3, w / 4 + 10, split + top * 0.3, front + 1, shade(color, 0.86), finish);
 }
 
 function sofa(b: Builder, w: number, d: number, h: number, color: string, seats: number) {
@@ -399,19 +408,6 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       b.box(w - 8, 450, 18, 0, KICK + 1310, z + 9, '#1c1c1e', { rough: 0.15 });
       b.box(w * 0.6, 12, 14, 0, KICK + 1240, z + 25, STEEL, METAL);
       fronts(b, w, KICK + 1770, h - KICK - 1770, z, 1, 1, color);
-      break;
-    }
-    case 'fridge': {
-      b.box(w, h, d - 40, 0, 0, -20, color, METAL);
-      const z = d / 2 - 40;
-      const split = h * 0.62;
-      const top = h - split - 6;
-      b.box(w / 2 - 4, top, 20, -w / 4, split + 4, z + 10, color, METAL);
-      b.box(w / 2 - 4, top, 20, w / 4, split + 4, z + 10, color, METAL);
-      b.box(w - 4, split - 20, 20, 0, 10, z + 10, color, METAL);
-      b.box(16, 500, 30, -30, split + 120, z + 35, '#666', METAL);
-      b.box(16, 500, 30, 30, split + 120, z + 35, '#666', METAL);
-      b.box(w * 0.5, 16, 30, 0, split - 120, z + 35, '#666', METAL);
       break;
     }
     case 'wall_cabinet': {
@@ -806,8 +802,8 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       break;
     case 'box':
     default: {
-      const lg = LG_FRIDGE_BY_TYPE[it.type];
-      if (lg) lgFridge(b, it, lg);
+      const fs = FRIDGE_STYLE[it.type];
+      if (fs) fridge(b, it, fs);
       else b.box(w, h, d, 0, 0, 0, color);
     }
   }

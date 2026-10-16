@@ -357,6 +357,8 @@ export function normaliseDesign(raw: unknown): Design {
       id: String(i.id),
       type: String(i.type ?? 'box'),
       name: String(i.name ?? i.type ?? 'Item'),
+      // LG fridges were dropped: they become a (slim) French door fridge, keeping their size and colour.
+      ...(String(i.type).startsWith('lg_') ? (num(i.width, 900) < 870 ? { type: 'fridge_slim_french', name: 'Slim French door fridge' } : { type: 'fridge', name: 'French door fridge' }) : {}),
       x: num(i.x, 0),
       y: num(i.y, 0),
       rotation: num(i.rotation, 0),

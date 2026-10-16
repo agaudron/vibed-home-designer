@@ -98,7 +98,7 @@ export function createSampleDesign(): Design {
       item('vanity', 4600, 2945 - 230, 180),
       item('mirror', 4600, 2945 - 75, 180),
       // Kitchen run along the top wall
-      item('fridge', 7005, 115 + 360, 0),
+      item('fridge', 7000, 115 + 375, 0),
       item('tall_cabinet', 7755, kitchenY, 0),
       item('base_cabinet', 8355, kitchenY, 0),
       item('sink_cabinet', 9105, kitchenY, 0),

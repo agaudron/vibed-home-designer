@@ -12,7 +12,7 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
     <line key={k} x1={x1} y1={y1} x2={x2} y2={y2} />
   );
 
-  if (type.startsWith('lg_')) return itemSymbol('fridge', w, d, options); // LG fridges
+  if (type.startsWith('fridge_')) return itemSymbol('fridge', w, d, options); // all fridge layouts
 
   switch (type) {
     case 'bed_single':
