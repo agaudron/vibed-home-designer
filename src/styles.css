@@ -216,7 +216,33 @@ select:focus {
 
 /* Catalog */
 .search {
-  margin: 10px;
+  margin: 10px 10px 6px;
+}
+.cat-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 10px 8px;
+  font-size: 12px;
+}
+.cat-filters select {
+  flex: 1 1 100%;
+}
+.cat-filters input[type='number'] {
+  width: 90px;
+}
+.cat-filters .toggle {
+  margin: 0;
+}
+.cat-clear {
+  margin-left: auto;
+  font-size: 12px;
+}
+.cat-count {
+  margin-left: auto;
+  font-weight: 400;
+  opacity: 0.7;
 }
 .cat-scroll {
   overflow-y: auto;
@@ -1184,6 +1210,8 @@ svg.plan.panning {
 .layer.l-plasterboard, .layer.l-render { background: #e6e3dc; }
 .layer.l-cladding { background: #7d8a96; }
 .layer.l-block { background: #9a968e; }
+.layer.l-colorbond { background: #4b4c46; }
+.layer.l-steel { background: #b8bcc0; }
 /* 2D: brick veneer / double brick show their cavity */
 .plan .wall .cavity {
   fill: var(--plan-bg);

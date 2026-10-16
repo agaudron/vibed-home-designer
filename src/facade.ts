@@ -11,7 +11,7 @@ export interface FinishInfo {
   /** Pattern repeat in mm (width along the wall, height). */
   tile: [number, number];
   /** Which palette the colour comes from. */
-  palette: 'paint' | 'brick' | 'stone' | 'timber' | 'block';
+  palette: 'paint' | 'brick' | 'stone' | 'timber' | 'block' | 'colorbond';
   /** Whether a mortar/joint colour applies. */
   mortar: boolean;
   roughness: number;
@@ -29,6 +29,8 @@ export const FINISHES: Record<FacadeFinish, FinishInfo> = {
   timber: { name: 'Timber cladding', tile: [560, 1200], palette: 'timber', mortar: false, roughness: 0.8, defaultColor: '#a86f43' },
   stone: { name: 'Stacked stone', tile: [800, 400], palette: 'stone', mortar: false, roughness: 0.95, defaultColor: '#9b9284' },
   block: { name: 'Concrete block', tile: [800, 400], palette: 'block', mortar: true, roughness: 0.95, defaultColor: '#b9b5ad' },
+  // Corrugated sheet: 76.2 mm pitch, ten waves per tile.
+  colorbond: { name: 'COLORBOND® corrugated', tile: [762, 1000], palette: 'colorbond', mortar: false, roughness: 0.45, defaultColor: '#bdbfba' },
 };
 
 export function defaultFacade(): Facade {
@@ -342,6 +344,17 @@ export function facadeCanvas(f: Facade): HTMLCanvasElement {
         g.fillStyle = 'rgba(0,0,0,0.35)';
         g.fillRect(x, 0, 4, th);
       }
+      break;
+    }
+    case 'colorbond': {
+      // Shade each corrugation across its width: dark in the trough, bright on the crest.
+      const pitch = 76.2;
+      for (let x = 0; x < tw; x++) {
+        const wave = Math.cos(((x % pitch) / pitch) * Math.PI * 2);
+        g.fillStyle = rgb(base, 0.86 + 0.16 * wave);
+        g.fillRect(x, 0, 1, th);
+      }
+      noise(0.015, 4);
       break;
     }
     case 'stone': {

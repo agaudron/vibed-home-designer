@@ -4,7 +4,7 @@ import { facadeCanvas, FINISHES } from '../facade';
 import type { Facade, FacadeFinish } from '../types';
 import { ColorField } from './Fields';
 
-const ORDER: FacadeFinish[] = ['brick', 'painted_brick', 'render', 'paint', 'weatherboard', 'vertical', 'panel', 'timber', 'stone', 'block'];
+const ORDER: FacadeFinish[] = ['brick', 'painted_brick', 'render', 'paint', 'weatherboard', 'vertical', 'panel', 'timber', 'stone', 'block', 'colorbond'];
 
 /** Pick an outside wall finish and its colours. */
 export default function FacadeEditor({ value, onChange }: { value: Facade; onChange: (f: Facade) => void }) {

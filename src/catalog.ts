@@ -382,6 +382,7 @@ export const FACADE_PALETTES: Record<string, NamedColor[]> = {
   stone: STONE_COLORS,
   timber: TIMBER_COLORS,
   block: BLOCK_COLORS,
+  colorbond: COLORBOND,
 };
 
 export const GARAGE_STYLES: Record<GarageStyle, { name: string; color: string }> = {

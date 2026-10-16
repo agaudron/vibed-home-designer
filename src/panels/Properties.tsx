@@ -19,7 +19,7 @@ import { KABOODLE_PRODUCTS } from '../kaboodle';
 import { DOOR_STOP_SIZE, DOOR_STOPS, doorStopProduct, doorStopUrl } from '../doorStops';
 import { ABI_HANDLE_BY_SLUG, ABI_HANDLES, abiHandleName, abiHandleUrl } from '../doorHandles';
 import { isKitchenRoom, isUnderBench, kitchenStyle, openKitchenDesigner, swapProduct } from '../kitchen';
-import { applyConstructionWithMessage, CONSTRUCTIONS, constructionThickness } from '../construction';
+import { applyConstructionWithMessage, applyWallConstructionWithMessage, CONSTRUCTIONS, constructionThickness } from '../construction';
 import type { Construction, CorniceType, Design, DoorDesign, LiningType, GarageStyle, Facade, FloorFinish, FloorSize, SkirtingType, Item, Opening, OpeningKind, Roof, RoofExtension, RoofStyle, Room, Wall, DoorStop, DoorHandleSpec } from '../types';
 import { ColorField, Field, NumField, TextField, Toggle } from './Fields';
 
@@ -154,6 +154,7 @@ function WallProps({ w, design }: { w: Wall; design: Design }) {
           {isFront && <p className="note">Walk mode starts out in front of this wall, at its door if it has one.</p>}
         </>
       )}
+      <WallConstruction w={w} design={design} />
       <WallFacade w={w} design={design} />
       <WallLining w={w} design={design} />
       <WallPaint w={w} design={design} />
@@ -600,6 +601,7 @@ function RoofProps({ roof, design }: { roof: Roof; design: Design }) {
   const autoPlate = Math.max(0, ...design.walls.map((w) => w.height));
   return (
     <Section title="Roof">
+      <p className="note warn">The roof tool is extremely buggy and doesn’t work well most of the time. Expect odd shapes, gaps or no roof at all.</p>
       <div className="roof-styles">
         {(Object.keys(STYLE_NAMES) as RoofStyle[]).map((st) => (
           <button key={st} className={roof.style === st ? 'on' : ''} onClick={() => set({ style: st })} title={STYLE_HINTS[st]}>
@@ -868,6 +870,46 @@ function FacadeProps({ design }: { design: Design }) {
       <p className="note">To mix finishes (e.g. brick at the front, cladding at the back), select a wall and set its own outside finish.</p>
       <p className="note">Colours are screen approximations of Dulux® colours. Check a colour chip before buying.</p>
     </Section>
+  );
+}
+
+/** Construction of one outside wall (e.g. a double brick garage wall on a brick veneer house). */
+function WallConstruction({ w, design }: { w: Wall; design: Design }) {
+  const sd = exteriorSides(design.walls).map.get(w.id);
+  if (!sd || !(sd.pos || sd.neg)) return null;
+  const current = w.construction ?? null;
+  return (
+    <div className="construction">
+      <Field label="Construction">
+        <select
+          value={current ?? ''}
+          onChange={(e) => applyWallConstructionWithMessage(w.id, (e.target.value || null) as Construction | null)}
+          title="Rebuilds this wall at this thickness; extra thickness goes outward so the room keeps its size"
+        >
+          <option value="">None / custom</option>
+          {(Object.keys(CONSTRUCTIONS) as Construction[]).map((c) => (
+            <option key={c} value={c}>
+              {CONSTRUCTIONS[c].name} ({constructionThickness(c)} mm)
+            </option>
+          ))}
+        </select>
+      </Field>
+      {current && (
+        <div className="layers">
+          {CONSTRUCTIONS[current].layers.map(([n, t], i) => (
+            <span key={i} className={`layer l-${n.split(' ')[0].toLowerCase()}`} style={{ flexGrow: t }} title={`${n} ${t} mm`}>
+              {t >= 40 ? t : ''}
+            </span>
+          ))}
+        </div>
+      )}
+      {current && (
+        <button onClick={() => applyWallConstructionWithMessage(w.id, current, true)} title="Apply this construction to every outside wall joined to this one, e.g. a whole shed">
+          Apply to whole outline
+        </button>
+      )}
+      {current && current !== design.settings.construction && <p className="note">Differs from the rest of the house. Re-applying the house construction resets it.</p>}
+    </div>
   );
 }
 

@@ -15,7 +15,8 @@ export type FacadeFinish =
   | 'panel'
   | 'timber'
   | 'stone'
-  | 'block';
+  | 'block'
+  | 'colorbond';
 
 /** External finish for the outside face of walls. */
 export interface Facade {
@@ -26,7 +27,7 @@ export interface Facade {
 }
 
 /** How an outside wall is built (sets its thickness and how it's drawn). */
-export type Construction = 'brick_veneer' | 'double_brick' | 'clad_frame' | 'block';
+export type Construction = 'brick_veneer' | 'double_brick' | 'clad_frame' | 'block' | 'colorbond_shed';
 
 export interface Wall {
   id: string;

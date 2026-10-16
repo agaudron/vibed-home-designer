@@ -6,19 +6,30 @@ import type { ItemDef, OpeningDef } from '../catalog';
 import { itemOutline, itemSymbol } from '../plan/symbols';
 import { store, useStore } from '../store';
 
+const DOORS = 'Doors & windows';
+
 export default function Catalog() {
   const tool = useStore((s) => s.tool);
   const [q, setQ] = useState('');
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ 'LG fridges': true }); // long list: open on demand
-  const match = (name: string, cat: string) => {
+  // Filters: one category (or all), widest allowed (mm), and only items modelled on a real product.
+  const [cat, setCat] = useState('');
+  const [maxW, setMaxW] = useState('');
+  const [products, setProducts] = useState(false);
+  // Every group starts collapsed; searching or filtering opens them all.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const widest = Number(maxW) > 0 ? Number(maxW) : Infinity;
+  const filtering = !!q.trim() || !!cat || widest < Infinity || products;
+  const match = (name: string, group: string, width: number, product: boolean) => {
     const s = q.trim().toLowerCase();
-    return !s || name.toLowerCase().includes(s) || cat.toLowerCase().includes(s);
+    if (cat && cat !== group) return false;
+    if (width > widest || (products && !product)) return false;
+    return !s || name.toLowerCase().includes(s) || group.toLowerCase().includes(s) || (group === DOORS && 'doors windows'.includes(s));
   };
-  const openings = OPENINGS.filter((o) => match(o.name, 'doors windows'));
+  const openings = OPENINGS.filter((o) => match(o.name, DOORS, o.width, false));
   const groups: [string, React.ReactNode[]][] = [];
   if (openings.length)
     groups.push([
-      'Doors & windows',
+      DOORS,
       openings.map((o) => (
         <button
           key={o.id}
@@ -32,11 +43,11 @@ export default function Catalog() {
         </button>
       )),
     ]);
-  for (const cat of CATEGORIES) {
-    const list = ITEMS.filter((i) => i.category === cat && match(i.name, cat));
+  for (const c of CATEGORIES) {
+    const list = ITEMS.filter((i) => i.category === c && match(i.name, c, i.width, isProductType(i.type) || !!i.link));
     if (!list.length) continue;
     groups.push([
-      cat,
+      c,
       list.map((d) => (
         <div key={d.type} className="cat-cell">
           <button
@@ -63,17 +74,49 @@ export default function Catalog() {
   return (
     <aside className="catalog">
       <input className="search" placeholder="Search furniture, doors…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="cat-filters">
+        <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Category">
+          <option value="">All categories</option>
+          {[DOORS, ...CATEGORIES].map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <input type="number" min={0} step={100} placeholder="Max width" value={maxW} onChange={(e) => setMaxW(e.target.value)} aria-label="Max width (mm)" title="Only show items this wide or narrower (mm)" />
+        <label className="toggle" title="Only items modelled on a real product you can buy">
+          <input type="checkbox" checked={products} onChange={(e) => setProducts(e.target.checked)} />
+          <span>Real products</span>
+        </label>
+        {filtering && (
+          <button
+            className="cat-clear"
+            onClick={() => {
+              setQ('');
+              setCat('');
+              setMaxW('');
+              setProducts(false);
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
       <div className="cat-scroll">
-        {groups.map(([name, els]) => (
-          <div key={name} className="cat-group">
-            <button className="cat-head" onClick={() => setCollapsed((c) => ({ ...c, [name]: !c[name] }))}>
-              <span className={`caret${collapsed[name] && !q ? '' : ' open'}`}>▸</span>
-              {name}
-            </button>
-            {(!collapsed[name] || q) && <div className="cat-grid">{els}</div>}
-          </div>
-        ))}
-        {!groups.length && <p className="note">Nothing matches “{q}”. Try “Custom block” and resize it.</p>}
+        {groups.map(([name, els]) => {
+          const open = filtering || !!expanded[name];
+          return (
+            <div key={name} className="cat-group">
+              <button className="cat-head" onClick={() => setExpanded((c) => ({ ...c, [name]: !c[name] }))}>
+                <span className={`caret${open ? ' open' : ''}`}>▸</span>
+                {name}
+                <span className="cat-count">{els.length}</span>
+              </button>
+              {open && <div className="cat-grid">{els}</div>}
+            </div>
+          );
+        })}
+        {!groups.length && <p className="note">Nothing matches. Clear the filters, or try “Custom block” and resize it.</p>}
       </div>
     </aside>
   );

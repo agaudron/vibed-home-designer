@@ -1,4 +1,4 @@
-import { exteriorSides } from './facade';
+import { exteriorSides, FINISHES } from './facade';
 import { add, clampOpeningOffset, dot, mul, near, projectOnSegment, sub, wallFrame } from './geometry';
 import { store } from './store';
 import type { Construction, Design, Facade, Vec, Wall } from './types';
@@ -21,6 +21,8 @@ export const CONSTRUCTIONS: Record<Construction, { name: string; layers: [string
     facade: 'weatherboard',
   },
   block: { name: 'Concrete block', layers: [['Block (core filled)', 190], ['Render / plaster', 20]], facade: 'block' },
+  // Shed / garage: corrugated sheet on steel girts, unlined.
+  colorbond_shed: { name: 'COLORBOND® steel shed', layers: [['COLORBOND sheet', 16], ['Steel frame (girts)', 75]], facade: 'colorbond' },
 };
 
 export const constructionThickness = (c: Construction) => CONSTRUCTIONS[c].layers.reduce((s, [, t]) => s + t, 0);
@@ -35,23 +37,25 @@ function intersect(a: Line, b: Line): Vec | null {
 }
 
 /**
- * Rebuild every outside wall with this construction. Walls get thicker (or thinner) on the OUTSIDE only, so
- * rooms keep their internal size: each outside wall's centreline moves out by half the change, corners are
- * re-joined, inside walls that meet it stretch to reach it, and doors/windows/floors follow.
+ * Rebuild every outside wall (or just the walls in `only`) with this construction. Walls get thicker (or thinner)
+ * on the OUTSIDE only, so rooms keep their internal size: each outside wall's centreline moves out by half the
+ * change, corners are re-joined, walls that meet it stretch to reach it, and doors/windows/floors follow.
  */
-export function applyConstruction(type: Construction): number {
-  const d = splitPartlyOutside(store.state.design);
+export function applyConstruction(type: Construction, only?: Set<string>): number {
+  const d = only ? store.state.design : splitPartlyOutside(store.state.design);
   const sides = exteriorSides(d.walls);
   if (!sides.enclosed) return 0;
   const t = constructionThickness(type);
   const shift = new Map<string, Vec>(); // wall id -> how its centreline moves
   for (const w of d.walls) {
     const sd = sides.map.get(w.id);
-    if (!sd) continue;
+    if (!sd || (only && !only.has(w.id))) continue;
+    // The house-wide construction leaves sheds alone.
+    if (!only && w.construction === 'colorbond_shed' && type !== 'colorbond_shed') continue;
     // Only walls that are outside along (nearly) their whole length, on exactly one face. Walls that are only
-    // partly outside, inside walls and free-standing walls are left alone.
-    const pos = (sd.posFrac ?? 0) >= 0.8;
-    const neg = (sd.negFrac ?? 0) >= 0.8;
+    // partly outside, inside walls and free-standing walls are left alone (unless picked on their own).
+    const pos = only ? sd.pos : (sd.posFrac ?? 0) >= 0.8;
+    const neg = only ? sd.neg : (sd.negFrac ?? 0) >= 0.8;
     if (pos === neg) continue;
     const f = wallFrame(w);
     shift.set(w.id, mul(f.n, (pos ? 1 : -1) * ((t - w.thickness) / 2)));
@@ -127,10 +131,17 @@ export function applyConstruction(type: Construction): number {
   });
   const rooms = d.rooms.map((r) => ({ ...r, points: r.points.map(mp) }));
   const finish = CONSTRUCTIONS[type].facade;
-  const facade =
-    finish && d.facade.finish !== finish && !(finish === 'brick' && d.facade.finish === 'painted_brick')
-      ? { ...d.facade, finish, color: finish === 'brick' ? '#9c4f3a' : finish === 'weatherboard' ? '#e9eae4' : '#b9b5ad' }
-      : d.facade;
+  const matches = (cur: Facade['finish']) => !finish || cur === finish || (finish === 'brick' && cur === 'painted_brick');
+  if (only) {
+    // Picked walls: each gets its own outside finish to match, if the one it has now doesn't; the house is untouched.
+    const walls1 = walls.map((w) => {
+      const cur = w.facade ?? d.facade;
+      return !shift.has(w.id) || matches(cur.finish) ? w : { ...w, facade: { ...cur, finish: finish!, color: FINISHES[finish!].defaultColor } };
+    });
+    store.update((dd) => ({ ...dd, walls: walls1, openings, rooms }));
+    return shift.size;
+  }
+  const facade = matches(d.facade.finish) ? d.facade : { ...d.facade, finish: finish!, color: FINISHES[finish!].defaultColor };
   store.update((dd) => ({ ...dd, walls, openings, rooms, facade, settings: { ...dd.settings, construction: type } }));
   void d;
   return shift.size;
@@ -178,6 +189,31 @@ function splitPartlyOutside(d: Design): Design {
     });
   }
   return walls === d.walls ? d : { ...d, walls, openings };
+}
+
+/** The walls joined to wall `id` (end to end or at T-junctions), itself included: e.g. a whole shed. */
+export function connectedWalls(walls: Wall[], id: string): Set<string> {
+  const touches = (w: Wall, p: Vec) => near(p, w.start) || near(p, w.end) || projectOnSegment(p, w.start, w.end).dist < 1;
+  const joined = (a: Wall, b: Wall) => touches(a, b.start) || touches(a, b.end) || touches(b, a.start) || touches(b, a.end);
+  const out = new Set([id]);
+  const todo = walls.filter((w) => w.id === id);
+  while (todo.length) {
+    const w = todo.pop()!;
+    for (const o of walls) if (!out.has(o.id) && joined(w, o)) out.add(o.id), todo.push(o);
+  }
+  return out;
+}
+
+/** Rebuild one outside wall (or, `whole`, every outside wall joined to it) with this construction; null forgets it. */
+export function applyWallConstructionWithMessage(wallId: string, type: Construction | null, whole = false) {
+  const ids = whole ? connectedWalls(store.state.design.walls, wallId) : new Set([wallId]);
+  if (!type) {
+    store.update((d) => ({ ...d, walls: d.walls.map((w) => (ids.has(w.id) ? { ...w, construction: null } : w)) }));
+    return;
+  }
+  const n = applyConstruction(type, ids);
+  const what = whole ? `${n} wall${n === 1 ? '' : 's'} now` : 'this wall is now';
+  store.flash(n ? `${CONSTRUCTIONS[type].name}: ${what} ${constructionThickness(type)} mm — rooms kept their size` : 'This isn’t an outside wall of a closed outline');
 }
 
 export function applyConstructionWithMessage(type: Construction) {
