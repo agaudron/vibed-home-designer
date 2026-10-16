@@ -120,6 +120,9 @@ function WallProps({ w, design }: { w: Wall; design: Design }) {
   const f = wallFrame(w);
   const cl = wallClearLength(w, design.walls);
   const count = design.openings.filter((o) => o.wallId === w.id).length;
+  const sd = exteriorSides(design.walls).map.get(w.id);
+  const outside = !!(sd?.pos || sd?.neg);
+  const isFront = design.settings.frontWallId === w.id;
   return (
     <Section title="Wall">
       <NumField
@@ -141,6 +144,16 @@ function WallProps({ w, design }: { w: Wall; design: Design }) {
       <Field label="Angle">
         <span className="readout">{normAngle(-deg(f.angle))}°</span>
       </Field>
+      {outside && (
+        <>
+          <Toggle
+            label="Front of house"
+            value={isFront}
+            onChange={(v) => store.update((d) => ({ ...d, settings: { ...d.settings, frontWallId: v ? w.id : null } }))}
+          />
+          {isFront && <p className="note">Walk mode starts out in front of this wall, at its door if it has one.</p>}
+        </>
+      )}
       <WallFacade w={w} design={design} />
       <WallLining w={w} design={design} />
       <WallPaint w={w} design={design} />

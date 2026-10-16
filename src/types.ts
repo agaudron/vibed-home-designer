@@ -241,6 +241,8 @@ export interface Settings {
   wallLining?: LiningType;
   /** Last construction applied to the outside walls. */
   construction?: Construction | null;
+  /** The outside wall at the front of the house; the walk-through starts out in front of it. */
+  frontWallId?: string | null;
 }
 
 export type RoofStyle = 'hip' | 'gable' | 'flat' | 'skillion';

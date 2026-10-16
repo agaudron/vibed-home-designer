@@ -1,6 +1,6 @@
 import { add, clampOpeningOffset, dot, effectiveOpenings, sidelights, mul, polygonArea, polygonCentroid, rad, rot, sub, v, wallExtensions, wallFrame, wallSpans } from '../geometry';
 import { exteriorSides } from '../facade';
-import type { Design, Item, Vec } from '../types';
+import type { Design, Item, Vec, Wall } from '../types';
 
 /**
  * First-person walk-through physics: what you bump into, what you can stand on, and where you start.
@@ -151,24 +151,36 @@ export function moveWithCollisions(world: WalkWorld, p: Vec, delta: Vec, feet: n
 /** Where to start walking: just outside the front door, looking at it; else the middle of the biggest room. */
 export function startPose(d: Design): { p: Vec; yaw: number } {
   const sides = exteriorSides(d.walls).map;
-  const doors = d.openings
-    .filter((o) => PASSABLE.has(o.kind) && o.kind !== 'garage_door')
-    .map((o) => ({ o, w: d.walls.find((w) => w.id === o.wallId)! }))
-    .filter(({ w }) => w && (sides.get(w.id)?.pos || sides.get(w.id)?.neg))
-    // Prefer a proper front door (hinged) over sliding doors, then the widest.
-    .sort((a, b) => Number(b.o.kind === 'door' || b.o.kind === 'double_door') - Number(a.o.kind === 'door' || a.o.kind === 'double_door') || b.o.width - a.o.width);
-  if (doors.length) {
-    const { o, w } = doors[0];
+  const outside = (w: Wall | undefined) => !!w && !!(sides.get(w.id)?.pos || sides.get(w.id)?.neg);
+  /** Stand a couple of metres out from `centre` on the outside of wall `w`, facing it. */
+  const facing = (w: Wall, centre: Vec) => {
     const f = wallFrame(w);
-    const sd = sides.get(w.id)!;
-    const out = sd.pos ? 1 : -1;
-    const centre = add(w.start, mul(f.u, clampOpeningOffset(o, f.length)));
+    const out = sides.get(w.id)!.pos ? 1 : -1;
     const world = walkWorld(d);
-    // Stand a couple of metres out, but not inside a pergola post / bin / bush.
+    // Not inside a pergola post / bin / bush.
     const dist = [1800, 2600, 3500, 1200].find((k) => !blocked(world, add(centre, mul(f.n, out * (w.thickness / 2 + k))))) ?? 1800;
     const p = add(centre, mul(f.n, out * (w.thickness / 2 + dist)));
     const face = mul(f.n, -out);
     return { p, yaw: Math.atan2(-face.x, -face.y) };
+  };
+  const front = d.walls.find((w) => w.id === d.settings.frontWallId);
+  const doors = d.openings
+    .filter((o) => PASSABLE.has(o.kind) && o.kind !== 'garage_door')
+    .map((o) => ({ o, w: d.walls.find((w) => w.id === o.wallId)! }))
+    .filter(({ w }) => outside(w))
+    // Prefer a door on the front of the house, then a proper front door (hinged) over sliding doors, then the widest.
+    .sort(
+      (a, b) =>
+        Number(b.w === front) - Number(a.w === front) ||
+        Number(b.o.kind === 'door' || b.o.kind === 'double_door') - Number(a.o.kind === 'door' || a.o.kind === 'double_door') ||
+        b.o.width - a.o.width,
+    );
+  // A front wall without a door: stand out in front of its middle.
+  if (front && outside(front) && doors[0]?.w !== front) return facing(front, add(front.start, mul(wallFrame(front).u, wallFrame(front).length / 2)));
+  if (doors.length) {
+    const { o, w } = doors[0];
+    const f = wallFrame(w);
+    return facing(w, add(w.start, mul(f.u, clampOpeningOffset(o, f.length))));
   }
   const rooms = [...d.rooms].filter((r) => r.points.length >= 3).sort((a, b) => polygonArea(b.points) - polygonArea(a.points));
   if (rooms.length) return { p: polygonCentroid(rooms[0].points), yaw: 0 };
