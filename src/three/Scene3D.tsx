@@ -2052,10 +2052,10 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
       side: THREE.DoubleSide,
     });
   const inside = exteriorSides(d.walls);
-  if (inside.enclosed && inside.inside.length) {
+  if (inside.enclosed && inside.floor.length) {
     const pos: number[] = [];
     const uv: number[] = [];
-    for (const r of inside.inside) {
+    for (const r of inside.floor) {
       const quad = [
         [r.x0, r.y0],
         [r.x1, r.y0],
@@ -2446,10 +2446,10 @@ function buildLinings(d: Design, cutHeight: number): THREE.Group {
 /** Ceiling rectangles and height for walk-through mode. */
 function ceilingOf(d: Design) {
   const sides = exteriorSides(d.walls);
-  if (!sides.enclosed || !sides.inside.length) return null;
+  if (!sides.enclosed || !sides.floor.length) return null;
   const outerWalls = d.walls.filter((w) => sides.map.get(w.id)?.pos || sides.map.get(w.id)?.neg);
   const auto = Math.max(0, ...(outerWalls.length ? outerWalls : d.walls).map((w) => w.height));
-  return { rects: sides.inside, height: (d.settings.ceilingHeight ?? auto) - 1 };
+  return { rects: sides.floor, height: (d.settings.ceilingHeight ?? auto) - 1 };
 }
 
 /** Triangulate roof faces: planar convex polygons as fans, infill strips as quads. */

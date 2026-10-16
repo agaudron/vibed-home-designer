@@ -52,6 +52,8 @@ interface SidesResult {
   enclosed: boolean;
   /** Rectangles covering everything inside the outside walls (walls included), in plan mm. */
   inside: { x0: number; y0: number; x1: number; y1: number }[];
+  /** Rectangles covering the floor inside the outside walls: up to just under the inner wall faces. */
+  floor: { x0: number; y0: number; x1: number; y1: number }[];
   /** The raster used (for room detection). */
   grid?: { cell: number; minX: number; minY: number; nx: number; ny: number; wall: Uint8Array; outside: Uint8Array };
 }
@@ -73,7 +75,7 @@ export function exteriorSides(walls: Wall[]): SidesResult {
 function computeSides(walls: Wall[]): SidesResult {
   const map = new Map<string, WallSides>();
   const real = walls.filter((w) => wallFrame(w).length > 1);
-  if (!real.length) return { map, enclosed: false, inside: [] };
+  if (!real.length) return { map, enclosed: false, inside: [], floor: [] };
 
   const rects = real.map((w) => {
     const f = wallFrame(w);
@@ -159,22 +161,23 @@ function computeSides(walls: Wall[]): SidesResult {
     const nf = enclosed ? outFrac(-1) : 0;
     map.set(w.id, { pos: pf >= 0.3, neg: nf >= 0.3, posFrac: pf, negFrac: nf });
   }
-  // Merge the inside cells into as few rectangles as possible (runs per row, extended down while identical).
-  const inside: SidesResult['inside'] = [];
-  if (enclosed) {
+  type Rect = SidesResult['inside'][number];
+  /** Merge the cells in `mask` into as few rectangles as possible (runs per row, extended down while identical). */
+  const merge = (mask: (c: number) => boolean): Rect[] => {
+    const out: Rect[] = [];
     let open = new Map<string, { i0: number; i1: number; j0: number }>();
     const close = (r: { i0: number; i1: number; j0: number }, jEnd: number) =>
-      inside.push({ x0: minX + r.i0 * cell, x1: minX + (r.i1 + 1) * cell, y0: minY + r.j0 * cell, y1: minY + jEnd * cell });
+      out.push({ x0: minX + r.i0 * cell, x1: minX + (r.i1 + 1) * cell, y0: minY + r.j0 * cell, y1: minY + jEnd * cell });
     for (let j = 0; j <= ny; j++) {
       const next = new Map<string, { i0: number; i1: number; j0: number }>();
       if (j < ny)
         for (let i = 0; i < nx; ) {
-          if (outside[j * nx + i]) {
+          if (!mask(j * nx + i)) {
             i++;
             continue;
           }
           let i1 = i;
-          while (i1 + 1 < nx && !outside[j * nx + i1 + 1]) i1++;
+          while (i1 + 1 < nx && mask(j * nx + i1 + 1)) i1++;
           const key = `${i}:${i1}`;
           next.set(key, open.get(key) ?? { i0: i, i1, j0: j });
           i = i1 + 1;
@@ -182,8 +185,27 @@ function computeSides(walls: Wall[]): SidesResult {
       for (const [key, r] of open) if (!next.has(key)) close(r, j);
       open = next;
     }
+    return out;
+  };
+  const inside = enclosed ? merge((c) => !outside[c]) : [];
+  // Floor / ceiling: the open cells inside, grown a couple of cells into the walls so they run under the inner
+  // wall faces (wall cells are padded past the faces) without reaching the outer faces or free-standing walls.
+  let floor: Rect[] = [];
+  if (enclosed) {
+    const fm = new Uint8Array(nx * ny);
+    for (let c = 0; c < nx * ny; c++) if (!outside[c] && !wall[c]) fm[c] = 1;
+    for (let pass = 0; pass < 2; pass++) {
+      const grow: number[] = [];
+      for (let c = 0; c < nx * ny; c++) {
+        if (fm[c] || outside[c]) continue;
+        const i = c % nx;
+        if ((i > 0 && fm[c - 1]) || (i < nx - 1 && fm[c + 1]) || (c >= nx && fm[c - nx]) || (c + nx < nx * ny && fm[c + nx])) grow.push(c);
+      }
+      for (const c of grow) fm[c] = 1;
+    }
+    floor = merge((c) => !!fm[c]);
   }
-  return { map, enclosed, inside, grid: { cell, minX, minY, nx, ny, wall, outside } };
+  return { map, enclosed, inside, floor, grid: { cell, minX, minY, nx, ny, wall, outside } };
 }
 
 // ---------- textures ----------
