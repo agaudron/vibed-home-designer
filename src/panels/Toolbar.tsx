@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { addOrSelectRoof } from '../actions';
+import { closeElectrical, openElectrical } from '../elecActions';
 import { exportPlanSvg, exportScreenshot, openDesign, resetFileHandle, saveDesign } from '../fileio';
 import { createSampleDesign } from '../sample';
 import { emptyDesign, store, useStore } from '../store';
@@ -21,6 +22,7 @@ export default function Toolbar() {
   const name = useStore((s) => s.design.name);
   const roofSelected = useStore((s) => s.selection?.kind === 'roof');
   const facadeSelected = useStore((s) => s.selection?.kind === 'facade');
+  const electric = useStore((s) => s.electric);
   // The settings panel shows whenever nothing is selected.
   const settingsOpen = useStore((s) => s.selection === null && s.tool.kind !== 'floor'); // the Floor tool shows floor areas instead
   useStore((s) => s.design); // re-render for undo/redo availability
@@ -143,6 +145,14 @@ export default function Toolbar() {
         >
           <span className="ico">▦</span>
           Facade
+        </button>
+        <button
+          className={electric ? 'active' : ''}
+          onClick={() => (electric ? closeElectrical() : openElectrical())}
+          title="Electrical plan: Clipsal Iconic switches and power points, lights, and what each switch turns on"
+        >
+          <span className="ico">⚡</span>
+          Electrical
         </button>
         <button
           className={settingsOpen ? 'active' : ''}

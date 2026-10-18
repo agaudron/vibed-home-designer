@@ -206,6 +206,32 @@ export interface Dimension {
   b: Vec;
 }
 
+/**
+ * Electrical: a power point, switch, light or fan (see ELEC_PRODUCTS in electrical.ts). Wall-mounted points sit on
+ * a wall face and face out of it; ceiling ones hang from the ceiling.
+ */
+export interface ElecPoint {
+  id: string;
+  /** Catalogue product id. */
+  product: string;
+  /** Plan position (mm): the wall face for wall-mounted points. */
+  x: number;
+  y: number;
+  /** Degrees, clockwise in plan: wall-mounted points face their local +y (out of the wall). */
+  rotation: number;
+  /** Height of the centre above the floor (wall-mounted points). */
+  height: number;
+  /** Plate colour (Iconic colour id); unset = the house plate colour. */
+  finish?: string;
+  /** Your own name for it, e.g. "Pendants over island". */
+  label?: string;
+  /** Lights: beam angle (degrees) and colour temperature (K); unset = the product's. */
+  beam?: number;
+  cct?: number;
+  /** Switches, dimmers and fan controls: the lights / fans each gang turns on, by id. */
+  gangs?: string[][];
+}
+
 export interface Settings {
   snap: number;
   wallThickness: number;
@@ -244,6 +270,8 @@ export interface Settings {
   construction?: Construction | null;
   /** The outside wall at the front of the house; the walk-through starts out in front of it. */
   frontWallId?: string | null;
+  /** House style for switch and power point plates (Clipsal Iconic): range and colour ids. */
+  electrical?: { range: string; finish: string };
 }
 
 export type RoofStyle = 'hip' | 'gable' | 'flat' | 'skillion';
@@ -302,13 +330,15 @@ export interface Design {
   items: Item[];
   rooms: Room[];
   dimensions: Dimension[];
+  /** Power points, switches and lights (the electrical plan). */
+  electrical: ElecPoint[];
   settings: Settings;
   roof: Roof | null;
   /** Default outside finish for the house. */
   facade: Facade;
 }
 
-export type EntityKind = 'wall' | 'opening' | 'item' | 'room' | 'dimension' | 'roof' | 'facade';
+export type EntityKind = 'wall' | 'opening' | 'item' | 'room' | 'dimension' | 'roof' | 'facade' | 'electric';
 
 export interface Selection {
   kind: EntityKind;
@@ -322,6 +352,9 @@ export type Tool =
   | { kind: 'floor' }
   | { kind: 'measure' }
   | { kind: 'place'; itemType: string; preset?: Partial<Item> }
-  | { kind: 'opening'; catalogId: string };
+  | { kind: 'opening'; catalogId: string }
+  /** Electrical page: place a product, or pick the lights one gang of a switch turns on. */
+  | { kind: 'elec'; product: string }
+  | { kind: 'elec-link'; switchId: string; gang: number };
 
 export type ViewMode = '2d' | 'split' | '3d';

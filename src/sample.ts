@@ -131,6 +131,7 @@ export function createSampleDesign(): Design {
       item('floor_lamp', 8050, 8550, 0),
     ],
     dimensions: [{ id: id('d'), a: { x: 0, y: -700 }, b: { x: 12000, y: -700 } }],
+    electrical: [],
     roof: null,
     facade: { finish: 'brick', color: '#9c4f3a', mortar: '#d9d4c7' },
   };

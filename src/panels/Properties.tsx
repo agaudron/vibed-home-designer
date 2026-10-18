@@ -15,6 +15,7 @@ import type { HandleType } from '../doorClearance';
 import { exteriorSides, FINISHES } from '../facade';
 import { generateRoof } from '../roof';
 import FacadeEditor from './FacadeEditor';
+import ElectricProps from './ElectricProps';
 import { KABOODLE_PRODUCTS } from '../kaboodle';
 import { DOOR_STOP_SIZE, DOOR_STOPS, doorStopProduct, doorStopUrl } from '../doorStops';
 import { ABI_HANDLE_BY_SLUG, ABI_HANDLES, abiHandleName, abiHandleUrl } from '../doorHandles';
@@ -55,6 +56,9 @@ export default function Properties() {
     body = <FacadeProps design={design} />;
   } else if (sel?.kind === 'roof' && design.roof) {
     body = <RoofProps roof={design.roof} design={design} />;
+  } else if (sel?.kind === 'electric') {
+    const e = design.electrical.find((x) => x.id === sel.id);
+    if (e) body = <ElectricProps e={e} design={design} />;
   } else if (sel?.kind === 'dimension') {
     const m = design.dimensions.find((x) => x.id === sel.id);
     if (m)
@@ -509,7 +513,7 @@ function DesignProps({ design }: { design: Design }) {
         </Field>
         <Field label="Contents">
           <span className="readout">
-            {design.walls.length} walls · {design.openings.length} openings · {design.items.length} items
+            {design.walls.length} walls · {design.openings.length} openings · {design.items.length} items{design.electrical.length ? ` · ${design.electrical.length} electrical` : ''}
           </span>
         </Field>
       </Section>

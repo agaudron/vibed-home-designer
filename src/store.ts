@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { Design, Roof, Selection, Tool, ViewMode } from './types';
 import { createSampleDesign } from './sample';
 import { defaultFacade } from './facade';
+import { normaliseElectrical } from './electrical';
 
 export interface AppState {
   design: Design;
@@ -14,6 +15,10 @@ export interface AppState {
   walking: boolean;
   /** Kitchen designer open for this room (id). */
   kitchen: string | null;
+  /** Electrical page open: the plan shows power points, switches and lights. */
+  electric: boolean;
+  /** Light spread demo: the switch gangs that are on (see gangKey); null = demo off. */
+  lightDemo: string[] | null;
   /** Where the walker is (plan mm) and which way they face, for the 2D marker. */
   walker: { x: number; y: number; yaw: number } | null;
   /** Side panels collapsed to make more room for the views. */
@@ -54,6 +59,7 @@ export function emptyDesign(): Design {
     items: [],
     rooms: [],
     dimensions: [],
+    electrical: [],
     roof: null,
     facade: defaultFacade(),
     settings: { snap: 50, wallThickness: 110, wallHeight: 2700, showDimensions: true, showRoomDimensions: true, wallColor: '#f2efe9', doorHeight: 2040, ceilingColor: '#ffffff', ceilingHeight: null, flooring: { finish: 'timber', color: '#c49a6c' }, cornice: 'cove90', skirting: 'pencil', skirtingColor: '#ffffff' },
@@ -154,6 +160,8 @@ class Store {
       showRoof: false, // the 3D view opens without the roof so you can see in; the Roof button shows it
       walking: false,
       kitchen: null,
+      electric: false,
+      lightDemo: null,
       walker: null,
       hideCatalog: readPref('hideCatalog'),
       hideProps: readPref('hideProps'),
@@ -284,7 +292,9 @@ class Store {
             ? d.items
             : s.kind === 'room'
               ? d.rooms
-              : d.dimensions;
+              : s.kind === 'electric'
+                ? d.electrical
+                : d.dimensions;
     if (!list.some((e) => e.id === s.id)) this.state = { ...this.state, selection: null };
   }
 
@@ -384,6 +394,7 @@ export function normaliseDesign(raw: unknown): Design {
       wallLining: rm.wallLining ?? null,
     })),
     dimensions: (r.dimensions ?? []).map((dm: any) => ({ id: String(dm.id), a: vec(dm.a), b: vec(dm.b) })),
+    electrical: normaliseElectrical(r.electrical),
     roof: r.roof && typeof r.roof === 'object' ? { ...defaultRoof(), ...(r.roof as object) } : null,
     facade: r.facade && typeof r.facade === 'object' ? { ...defaultFacade(), ...(r.facade as object) } : defaultFacade(),
   };

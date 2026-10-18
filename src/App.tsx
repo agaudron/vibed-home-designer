@@ -4,6 +4,7 @@ import { saveDesign } from './fileio';
 import { isFormControl, isTyping } from './keyboard';
 import Catalog from './panels/Catalog';
 import KitchenDesigner from './panels/KitchenDesigner';
+import ElectricalDesigner from './panels/ElectricalDesigner';
 import Properties from './panels/Properties';
 import Legal from './panels/Legal';
 import ProductCard from './panels/ProductCard';
@@ -18,6 +19,7 @@ export default function App() {
   const hideCatalog = useStore((s) => s.hideCatalog);
   const hideProps = useStore((s) => s.hideProps);
   const kitchen = useStore((s) => s.kitchen);
+  const electric = useStore((s) => s.electric);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -116,7 +118,7 @@ export default function App() {
           </button>
         ) : (
           <div className="panel-wrap">
-            {kitchen ? <KitchenDesigner roomId={kitchen} /> : <Catalog />}
+            {kitchen ? <KitchenDesigner roomId={kitchen} /> : electric ? <ElectricalDesigner /> : <Catalog />}
             <button className="panel-collapse left" onClick={() => togglePanel('hideCatalog')} title="Hide the catalog for more room ( [ )">
               ‹
             </button>

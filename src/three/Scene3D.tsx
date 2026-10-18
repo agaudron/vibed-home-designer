@@ -18,6 +18,9 @@ import type { TrimRun } from '../trims';
 import type { RoofFace } from '../roof';
 import type { Design, Facade, FloorFinish, FloorSize, Item, Opening, Selection, Wall } from '../types';
 import { buildItem, buildOpening, Builder } from './builders';
+import { buildElectrical } from './electrical3d';
+import { beamOf, cctColor, cctOf, lightSource, litLights, productOf } from '../electrical';
+import type { ElecPoint } from '../types';
 import type { ItemContext, MatFn, MatOpts } from './builders';
 import { buildMeasures, measuresForItem } from './measure3d';
 import { doorwayBox, EYE_HEIGHT, floorAt, moveWithCollisions, startPose, walkWorld } from './walk';
@@ -217,6 +220,17 @@ export default function Scene3D() {
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 30;
     scene.add(sun, sun.target);
+    // Light spread demo: night time, so the house's own lights show.
+    let night = false;
+    let envOn = false;
+    const applyDay = () => {
+      night = !!store.state.lightDemo;
+      scene.background = new THREE.Color(night ? '#0b1020' : '#dfe7ee');
+      hemi.intensity = night ? 0.06 : envOn ? 1.0 : 1.6;
+      sun.intensity = night ? 0.03 : 2.2;
+      scene.environmentIntensity = night ? 0.02 : 0.25;
+      if (store.state.walking) fill.intensity = night ? 0.03 : 0.9;
+    };
 
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(400000, 400000), new THREE.MeshStandardMaterial({ color: '#cfd6c9', roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
@@ -299,8 +313,8 @@ export default function Scene3D() {
         pm.dispose();
       }
       scene.environment = env ? envTex : null;
-      scene.environmentIntensity = 0.25;
-      hemi.intensity = env ? 1.0 : 1.6;
+      envOn = !!env;
+      applyDay();
       // Ultra: ambient occlusion (soft shading where surfaces meet).
       if (q === 'ultra' && !composer) {
         const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
@@ -486,15 +500,16 @@ export default function Scene3D() {
     };
 
     const itemCache: ItemCache = new Map();
-    let last: { design: Design; selection: Selection | null; cutaway: boolean; roof: boolean; walking: boolean } | null = null;
+    let last: { design: Design; selection: Selection | null; cutaway: boolean; roof: boolean; walking: boolean; electric: boolean; demo: string[] | null } | null = null;
     const rebuild = () => {
-      const { design, selection, cutaway: cut, showRoof: roofOn, walking: walkOn } = store.state;
-      if (last && last.design === design && last.selection === selection && last.cutaway === cut && last.roof === roofOn && last.walking === walkOn)
+      const { design, selection, cutaway: cut, showRoof: roofOn, walking: walkOn, electric, lightDemo: demo } = store.state;
+      if (last && last.design === design && last.selection === selection && last.cutaway === cut && last.roof === roofOn && last.walking === walkOn && last.electric === electric && last.demo === demo)
         return;
       const first = !last;
-      last = { design, selection, cutaway: cut, roof: roofOn, walking: walkOn };
+      last = { design, selection, cutaway: cut, roof: roofOn, walking: walkOn, electric, demo };
       const old = house;
-      house = buildHouse(design, selection, cut, roofOn, itemCache, walkOn);
+      house = buildHouse(design, selection, cut, roofOn, itemCache, walkOn, electric, demo ? litLights(design, new Set(demo)) : null);
+      if (night !== !!demo) applyDay();
       scene.remove(old);
       disposeTree(old); // reused furniture has already been moved into the new group
       scene.add(house);
@@ -968,7 +983,7 @@ export default function Scene3D() {
         saved: { pos: camera.position.clone(), target: controls.target.clone(), fov: camera.fov, near: camera.near },
       };
       controls.enabled = false;
-      fill.intensity = 0.9;
+      fill.intensity = night ? 0.03 : 0.9;
       camera.fov = 70;
       camera.near = 20;
       camera.updateProjectionMatrix();
@@ -2037,7 +2052,7 @@ function skylightContext(it: Item, faces: RoofFace[] | null, ceiling: number, cu
   };
 }
 
-function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, showRoof: boolean, cache: ItemCache, walking = false): THREE.Group {
+function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, showRoof: boolean, cache: ItemCache, walking = false, electric = false, lit: Set<string> | null = null): THREE.Group {
   const house = new THREE.Group();
   const plain = makeMat(false);
   const highlight = makeMat(true);
@@ -2253,10 +2268,36 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
   }
   for (const id of [...cache.keys()]) if (!seen.has(id)) cache.delete(id);
 
+  // Electrical: plates on the walls; ceiling lights and fans only where there's a ceiling to hang from (walking
+  // through) or on the electrical page, so they don't float over the open-topped house.
+  // Light spread demo: a real spotlight for each light that's on (no shadows, so dozens stay quick).
+  for (const e of d.electrical) {
+    if (productOf(e).mount === 'ceiling' && !walking && !electric) continue;
+    const on = lit ? lit.has(e.id) : null;
+    house.add(buildElectrical(d, e, isSel('electric', e.id) ? highlight : plain, ceilingH, on));
+    if (on) house.add(lightSpot(e, ceilingH));
+  }
+
   // Up/down handle above the selected item: drag it to raise or lower the item.
   const selItem = selection?.kind === 'item' ? d.items.find((i) => i.id === selection.id) : undefined;
   if (selItem) house.add(liftHandle(selItem));
   return house;
+}
+
+/** The beam of a light that's on in the light spread demo, aimed at the floor (or out from the wall, angled down). */
+function lightSpot(e: ElecPoint, ceiling: number): THREE.SpotLight {
+  const p = productOf(e);
+  const h = lightSource(e, ceiling);
+  const half = THREE.MathUtils.degToRad(Math.min(80, beamOf(e) / 2));
+  // decay 0: no fall-off with distance (scene units are mm, so physical fall-off would need huge intensities).
+  const spot = new THREE.SpotLight(cctColor(cctOf(e)), ((p.lumens ?? 600) / 750) * 2.2, h * 3, half, 0.55, 0);
+  const r = THREE.MathUtils.degToRad(e.rotation);
+  const out = p.mount === 'wall' ? 60 : 0; // wall lights: from just in front of the wall
+  spot.position.set(e.x - Math.sin(r) * out, h - 20, e.y + Math.cos(r) * out);
+  spot.target.position.set(e.x - Math.sin(r) * (p.mount === 'wall' ? h * 0.5 : 0), 0, e.y + Math.cos(r) * (p.mount === 'wall' ? h * 0.5 : 0));
+  spot.add(spot.target);
+  spot.target.position.sub(spot.position);
+  return spot;
 }
 
 function liftHandle(it: Item): THREE.Group {

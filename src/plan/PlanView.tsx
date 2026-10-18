@@ -54,6 +54,9 @@ import { BOARD_FLOORS, DIRECTIONAL_FLOORS, floorOf } from '../trims';
 import { nearestWall, snapItem, snapPoint } from './snap';
 import type { SnapResult } from './snap';
 import { itemOutline, itemSymbol } from './symbols';
+import { ElectricalLayer } from './electrical';
+import { ELEC_MAP, elecPlacement, linkRefFor, litLights, newElecPoint, productOf } from '../electrical';
+import { flickSwitch, startLinking, toggleLink } from '../elecActions';
 
 interface View {
   scale: number; // screen px per mm
@@ -65,6 +68,7 @@ type Drag =
   | { kind: 'pan'; sx: number; sy: number; tx: number; ty: number }
   | { kind: 'item'; id: string; off: Vec }
   | { kind: 'item-rotate'; id: string }
+  | { kind: 'elec'; id: string; off: Vec }
   | { kind: 'item-resize'; id: string; orig: Item }
   | { kind: 'wall'; id: string; start: Vec; orig: Design; pts: Vec[] }
   | { kind: 'wall-end'; id: string; which: 'start' | 'end'; orig: Design; exclude: Set<string> }
@@ -112,6 +116,9 @@ export default function PlanView() {
   const selection = useStore((s) => s.selection);
   const tool = useStore((s) => s.tool);
   const walker = useStore((s) => s.walker);
+  const electric = useStore((s) => s.electric);
+  const lightDemo = useStore((s) => s.lightDemo);
+  const lit = useMemo(() => (lightDemo ? litLights(design, new Set(lightDemo)) : null), [design, lightDemo]);
   const roofSel = selection?.kind === 'roof';
   const roofRes = useMemo(() => (roofSel && design.roof ? generateRoof(design, design.roof) : null), [design, roofSel]);
 
@@ -246,9 +253,17 @@ export default function PlanView() {
     return { o: { ...o, offset: clear ?? o.offset, id: '__ghost' }, wall };
   };
 
+  const computeGhostElec = (p: Vec | null, free: boolean) => {
+    if (tool.kind !== 'elec' || !p) return null;
+    const prod = ELEC_MAP[tool.product];
+    const at = prod && elecPlacement(design, prod, p, { tol: tol * 1.5, grid, free });
+    return at ? { e: { ...newElecPoint(prod, at), id: '__ghost' }, guides: at.guides } : null;
+  };
+
   const snap = computeSnap(mouse, mods.shift);
   const ghostItem = computeGhostItem(mouse, mods.shift);
   const ghostOpening = computeGhostOpening(mouse, mods.shift);
+  const ghostElec = computeGhostElec(mouse, mods.shift);
 
   // ---------- drawing actions ----------
   const finishChain = () => {
@@ -394,9 +409,10 @@ export default function PlanView() {
       return;
     }
     if (e.button !== 0) return;
+    // Electrical page: wall lengths and gaps aren't editable, so clicks always reach the electrical tools.
 
     const gapEl = (e.target as Element).closest('[data-kind="gap-label"]') as SVGElement | null;
-    if (gapEl && !chain.length) {
+    if (gapEl && !chain.length && !electric) {
       e.preventDefault();
       const value = Number(gapEl.dataset.gap);
       setLengthEdit({
@@ -408,7 +424,7 @@ export default function PlanView() {
       return;
     }
     const igEl = (e.target as Element).closest('[data-kind="item-gap"]') as SVGElement | null;
-    if (igEl && !chain.length) {
+    if (igEl && !chain.length && !electric) {
       e.preventDefault();
       setLengthEdit({
         wallId: '',
@@ -419,7 +435,7 @@ export default function PlanView() {
       return;
     }
     const ogEl = (e.target as Element).closest('[data-kind="opening-gap"]') as SVGElement | null;
-    if (ogEl && !chain.length) {
+    if (ogEl && !chain.length && !electric) {
       e.preventDefault();
       setLengthEdit({
         wallId: '',
@@ -430,7 +446,7 @@ export default function PlanView() {
       return;
     }
     const labelEl = (e.target as Element).closest('[data-kind="wall-label"]') as SVGElement | null;
-    if (labelEl && !chain.length) {
+    if (labelEl && !chain.length && !electric) {
       const w = store.state.design.walls.find((x) => x.id === labelEl.dataset.id);
       if (w) {
         e.preventDefault();
@@ -465,6 +481,30 @@ export default function PlanView() {
           if (!e.ctrlKey && !e.metaKey) store.setTool({ kind: 'select' });
           store.select({ kind: 'item', id: it.id });
         }
+        return;
+      }
+      case 'elec': {
+        // Electrical points: keep placing until Esc / right-click (rooms usually need several).
+        const g = computeGhostElec(p, e.shiftKey);
+        if (g) {
+          const pt = { ...g.e, id: uid('e') };
+          store.update((d) => ({ ...d, electrical: [...d.electrical, pt] }));
+        }
+        return;
+      }
+      case 'elec-link': {
+        // Click lights to add them to (or take them off) the switch's gang; click another switch to link that one.
+        const el = (e.target as Element).closest('[data-kind="electric"]') as SVGElement | null;
+        const hit = el && store.state.design.electrical.find((x) => x.id === el.dataset.id);
+        if (!hit) {
+          beginDrag(e, { kind: 'pan', sx: e.clientX, sy: e.clientY, tx: vw.tx, ty: vw.ty });
+          return;
+        }
+        // Fans with a light: a fan controller takes the fan, a switch or dimmer the light.
+        const ctl = store.state.design.electrical.find((x) => x.id === tool.switchId);
+        const ref = ctl && linkRefFor(productOf(ctl), hit);
+        if (ref) toggleLink(tool.switchId, tool.gang, ref);
+        else if (hit.gangs && hit.id !== tool.switchId) startLinking(hit.id, 0);
         return;
       }
       case 'opening': {
@@ -512,6 +552,17 @@ export default function PlanView() {
       const ex = d.roof?.extensions?.find((x) => x.id === id);
       store.select({ kind: 'roof', id });
       if (ex) beginDrag(e, { kind: 'roof-ext', id, start: p, orig: ex });
+      return;
+    }
+    if (kind === 'electric') {
+      const el = d.electrical.find((x) => x.id === id)!;
+      store.select({ kind: 'electric', id });
+      // Light spread demo: clicking a switch flicks it.
+      if (store.state.lightDemo && el.gangs) {
+        flickSwitch(el);
+        return;
+      }
+      beginDrag(e, { kind: 'elec', id, off: sub(p, v(el.x, el.y)) });
       return;
     }
     if (kind === 'item') {
@@ -564,6 +615,15 @@ export default function PlanView() {
         const s = snapItem(d, it, sub(p, drag.off), { tol: tol * 1.5, grid: Math.min(grid, 50), free: free || e.altKey });
         setItemGuides(s.guides);
         applyDrag((dd) => ({ ...dd, items: dd.items.map((i) => (i.id === drag.id ? { ...i, x: s.x, y: s.y, rotation: s.rotation } : i)) }));
+        break;
+      }
+      case 'elec': {
+        const el = d.electrical.find((x) => x.id === drag.id);
+        if (!el) break;
+        const at = elecPlacement(d, productOf(el), sub(p, drag.off), { tol: tol * 1.5, grid, free, exclude: el.id });
+        if (!at) break; // wall-mounted: stays put until the cursor is near a wall
+        setItemGuides(at.guides);
+        applyDrag((dd) => ({ ...dd, electrical: dd.electrical.map((x) => (x.id === drag.id ? { ...x, x: at.x, y: at.y, rotation: at.rotation } : x)) }));
         break;
       }
       case 'item-rotate': {
@@ -1355,15 +1415,17 @@ export default function PlanView() {
       ? 'panning'
       : tool.kind === 'select'
         ? 'tool-select'
-        : tool.kind === 'opening' && !ghostOpening
+        : (tool.kind === 'opening' && !ghostOpening) || (tool.kind === 'elec' && !ghostElec)
           ? 'tool-blocked'
-          : 'tool-draw';
+          : tool.kind === 'elec-link'
+            ? 'tool-select'
+            : 'tool-draw';
 
   return (
     <div className="plan-wrap" ref={wrapRef}>
       <svg
         ref={svgRef}
-        className={`plan plan-canvas ${cursorClass}`}
+        className={`plan plan-canvas ${cursorClass}${electric ? ' elec-mode' : ''}`}
         width={size.w}
         height={size.h}
         onPointerDown={onPointerDown}
@@ -1453,6 +1515,7 @@ export default function PlanView() {
             })}
           </g>
           <g className="dims">{design.dimensions.map((m) => dimLine(m.a, m.b, m.id, { id: m.id, selected: isSel('dimension', m.id) }))}</g>
+          {electric && <ElectricalLayer design={design} px={px} selection={selection} tool={tool} ghost={ghostElec?.e ?? null} lit={lit} />}
           {roofRes && <RoofOverlay r={roofRes} fs={fs} />}
           {design.settings.showClearances && (
             <g className="gaps">
@@ -1464,7 +1527,7 @@ export default function PlanView() {
           <g className="handles">{handles}</g>
           <g className="preview">{preview}</g>
           <g className="align-guides">
-            {(dragKind === 'item' ? itemGuides : (ghostItemSnap(mouse, mods.shift)?.guides ?? [])).map(([g1, g2], i) => (
+            {(dragKind === 'item' || dragKind === 'elec' ? itemGuides : (ghostElec?.guides ?? ghostItemSnap(mouse, mods.shift)?.guides ?? [])).map(([g1, g2], i) => (
               <line key={i} x1={g1.x} y1={g1.y} x2={g2.x} y2={g2.y} />
             ))}
           </g>
@@ -1542,6 +1605,8 @@ const HINTS: Record<string, string[]> = {
   measure: ['Click two points to add a dimension line'],
   place: ['Click to place · snaps against walls and neighbouring items', 'Shift = no snapping · Ctrl+click to keep placing · Esc to cancel'],
   opening: ['Hover a wall and click to insert', 'Ctrl+click to keep placing · Esc to cancel'],
+  elec: ['Click to place each one · switches and power points go on the nearest wall', 'Lights line up with each other · Shift = no snapping', 'Esc or right-click when done'],
+  'elec-link': ['Click lights to add them to this switch, click again to take them off', 'Fans with a light: switches link the light, fan controllers the fan', 'Click another switch to link that one instead', 'Esc or right-click when done'],
 };
 
 function PlanHud(props: { tool: string; chainLen: number; typed: string; mouse: Vec | null; snapKind?: string }) {

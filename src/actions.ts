@@ -1,5 +1,6 @@
 import { DOOR_DESIGNS, ITEM_MAP, OPENING_MAP } from './catalog';
-import { add, clampOpeningOffset, mul, near, normAngle, projectOnSegment, uid, uncoveredParts, v, wallFrame } from './geometry';
+import { productOf, removeElec } from './electrical';
+import { add, clampOpeningOffset, mul, near, normAngle, projectOnSegment, rad, rot, uid, uncoveredParts, v, wallFrame } from './geometry';
 import { defaultRoof, store } from './store';
 import type { Design, Item, Opening, Room, Vec, Wall } from './types';
 
@@ -94,6 +95,8 @@ export function deleteSelection() {
         // A selected extension is removed on its own; otherwise the whole roof goes.
         if (s.id !== 'roof' && d.roof) return { ...d, roof: { ...d.roof, extensions: (d.roof.extensions ?? []).filter((x) => x.id !== s.id) } };
         return { ...d, roof: null };
+      case 'electric':
+        return removeElec(d, new Set([s.id]));
       case 'facade':
         return d;
     }
@@ -131,6 +134,16 @@ export function duplicateSelection() {
     const copy = { ...r, id: uid('r'), name: `${r.name} copy`, points: r.points.map((p) => add(p, off)) };
     store.update((dd) => ({ ...dd, rooms: [...dd.rooms, copy] }));
     store.select({ kind: 'room', id: copy.id });
+  } else if (s.kind === 'electric') {
+    // Wall-mounted: further along the same wall; ceiling fittings: alongside. The copy starts with no lights linked.
+    const e = d.electrical.find((x) => x.id === s.id);
+    if (!e) return;
+    const p = productOf(e);
+    const step = rot(v(p.mount === 'wall' ? p.w + 150 : 600, 0), rad(e.rotation));
+    const copy = { ...e, id: uid('e'), x: e.x + step.x, y: e.y + step.y, ...(e.gangs ? { gangs: e.gangs.map(() => []) } : {}) };
+    delete copy.label;
+    store.update((dd) => ({ ...dd, electrical: [...dd.electrical, copy] }));
+    store.select({ kind: 'electric', id: copy.id });
   }
 }
 
@@ -150,6 +163,7 @@ export function nudgeSelection(dx: number, dy: number) {
   store.update((d) => {
     if (s.kind === 'item') return { ...d, items: d.items.map((i) => (i.id === s.id ? { ...i, x: i.x + dx, y: i.y + dy } : i)) };
     if (s.kind === 'room') return { ...d, rooms: d.rooms.map((r) => (r.id === s.id ? { ...r, points: r.points.map((p) => add(p, dv)) } : r)) };
+    if (s.kind === 'electric') return { ...d, electrical: d.electrical.map((e) => (e.id === s.id ? { ...e, x: e.x + dx, y: e.y + dy } : e)) };
     if (s.kind === 'dimension')
       return { ...d, dimensions: d.dimensions.map((m) => (m.id === s.id ? { ...m, a: add(m.a, dv), b: add(m.b, dv) } : m)) };
     if (s.kind === 'wall') {
@@ -428,6 +442,7 @@ export function raiseSelection(by: number) {
   if (!s) return;
   store.update((d) => {
     if (s.kind === 'item') return { ...d, items: d.items.map((i) => (i.id === s.id ? { ...i, elevation: Math.max(0, i.elevation + by) } : i)) };
+    if (s.kind === 'electric') return { ...d, electrical: d.electrical.map((e) => (e.id === s.id && productOf(e).mount === 'wall' ? { ...e, height: Math.max(0, e.height + by) } : e)) };
     if (s.kind === 'opening') {
       return {
         ...d,
