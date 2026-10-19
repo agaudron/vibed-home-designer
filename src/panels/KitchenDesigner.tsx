@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KABOODLE_BENCHTOPS, KABOODLE_DOORS, KABOODLE_HANDLES, KABOODLE_HOME, KABOODLE_PRODUCTS } from '../kaboodle';
 import type { KaboodleClass, KaboodleDoor, KaboodleProduct } from '../kaboodle';
-import { CLASS_NAMES, closeKitchenDesigner, kaboodlePreset, kitchenItems, kitchenRange, kitchenStyle, setKitchenStyle, styleParts } from '../kitchen';
+import { CLASS_NAMES, closeKitchenDesigner, designerName, kaboodlePreset, kitchenItems, kitchenRange, kitchenStyle, setKitchenStyle, styleParts } from '../kitchen';
 import CustomCabinetry from './CustomCabinetry';
 import { store, useStore } from '../store';
 import { FRIDGES } from '../catalog';
@@ -77,7 +77,7 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
     <aside className="catalog kitchen-designer">
       <div className="kd-head">
         <div>
-          <strong>Kitchen designer</strong>
+          <strong>{designerName(room)}</strong>
           <span className="kd-room">
             {room.name} · {range === 'custom' ? 'Custom cabinetry' : 'Kaboodle'}
           </span>

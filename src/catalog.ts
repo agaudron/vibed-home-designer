@@ -44,7 +44,7 @@ export const OPENINGS: OpeningDef[] = [
   { id: 'entrance_ivy', name: 'Ivy Willow front door', kind: 'door', width: 920, height: 2040, sill: 0, color: '#f4f4ef', design: 'fpp_ivy_willow' },
   { id: 'entrance_hav44', name: 'Hume HAV44 entrance door', kind: 'door', width: 820, height: 2040, sill: 0, color: '#f4f4ef', design: 'hume_hav44' },
   { id: 'entrance_hamptons', name: 'Entrance door (Hamptons)', kind: 'door', width: 920, height: 2040, sill: 0, color: '#f4f4ef', design: 'joinery' },
-  { id: 'double_door', name: 'Double door', kind: 'double_door', width: 1713, height: 2040, sill: 0, color: '#f4f1ea' }, // two 820 doors
+  { id: 'double_door', name: 'Double door', kind: 'double_door', width: 1573, height: 2040, sill: 0, color: '#f4f1ea' }, // two 820 doors (doubleDoorWidth(820))
   { id: 'sliding_door', name: 'Sliding glass door', kind: 'sliding_door', width: 2400, height: 2100, sill: 0, color: '#3a3f45' },
   // 3 × 1000 mm panels: 3000 mm overall (see stackerWidth).
   { id: 'stacker_door', name: 'Stacker door', kind: 'stacker_door', width: 3000, height: 2100, sill: 0, color: '#3a3f45', panels: 3, panelWidth: 1000 },

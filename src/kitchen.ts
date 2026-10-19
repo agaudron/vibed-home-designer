@@ -5,6 +5,7 @@ import { store } from './store';
 import { KB_LEGS } from './three/builders';
 import type { Design, Item, KitchenStyle, Room } from './types';
 import { customStyle, restyleCustom } from './cabinetry';
+import type { JoineryRoom } from './cabinetry';
 
 /**
  * Kitchen designer: a room's Kaboodle style (door colour, benchtop, handles) and the Kaboodle units in it.
@@ -12,7 +13,10 @@ import { customStyle, restyleCustom } from './cabinetry';
  * options, so they draw and save on their own. Changing the kitchen's style restyles every unit in the room.
  */
 
-export const isKitchenRoom = (r: Room) => /kitchen/i.test(r.name);
+/** Rooms the designer works in: kitchens and laundries (by name). */
+export const joineryKind = (r: Room): JoineryRoom | null => (/kitchen/i.test(r.name) ? 'kitchen' : /laundry|ldry/i.test(r.name) ? 'laundry' : null);
+export const isKitchenRoom = (r: Room) => joineryKind(r) !== null;
+export const designerName = (r: Room) => (joineryKind(r) === 'laundry' ? 'Laundry designer' : 'Kitchen designer');
 
 /** Floor units that sit under the benchtop (their height includes the legs and benchtop). */
 const UNDER_BENCH: KaboodleClass[] = ['base', 'drawer', 'sink', 'cooktop', 'corner', 'dishwasher'];
@@ -142,7 +146,7 @@ export function setKitchenStyle(roomId: string, patch: Partial<KitchenStyle>) {
     return {
       ...d,
       rooms: d.rooms.map((x) => (x.id === roomId ? { ...x, kitchen: s } : x)),
-      items: d.items.map((i) => (!inRoom.has(i.id) ? i : i.type === 'cabinet' ? restyleCustom(i, customStyle(s)) : restyle(i, s))),
+      items: d.items.map((i) => (!inRoom.has(i.id) ? i : i.type === 'cabinet' ? restyleCustom(i, customStyle(s, joineryKind(r) ?? 'kitchen')) : restyle(i, s))),
     };
   });
 }

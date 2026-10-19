@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { BENCH_MATERIALS, cabinetSchedule, customPreset, customStyle, DOOR_COLOURS, DOOR_PROFILES, HANDLE_FINISHES, HANDLE_STYLES, UNIT_TYPES } from '../cabinetry';
+import { BENCH_MATERIALS, cabinetSchedule, customPreset, customStyle, DOOR_COLOURS, DOOR_PROFILES, HANDLE_FINISHES, HANDLE_STYLES, unitsFor } from '../cabinetry';
+import { FRIDGES, ITEM_MAP } from '../catalog';
 import type { CustomStyle, UnitType } from '../cabinetry';
-import { kitchenItems, setKitchenStyle } from '../kitchen';
+import { joineryKind, kitchenItems, setKitchenStyle } from '../kitchen';
 import { store, useStore } from '../store';
 import type { Room } from '../types';
 import { ColorField, NumField } from './Fields';
@@ -13,12 +14,24 @@ import { ColorField, NumField } from './Fields';
 export default function CustomCabinetry({ room }: { room: Room }) {
   const design = useStore((s) => s.design);
   const tool = useStore((s) => s.tool);
-  const s = customStyle(room.kitchen);
-  const set = (patch: Partial<CustomStyle>) => setKitchenStyle(room.id, { custom: { ...room.kitchen?.custom, ...patch } });
-  const [unit, setUnit] = useState<UnitType>(UNIT_TYPES[0]);
-  const [width, setWidth] = useState(UNIT_TYPES[0].width);
+  const kind = joineryKind(room) ?? 'kitchen';
+  const unitTypes = unitsFor(kind);
+  const s = customStyle(room.kitchen, kind);
+  // Saves the whole style the first time, so a laundry keeps its laundry defaults.
+  const set = (patch: Partial<CustomStyle>) => setKitchenStyle(room.id, { custom: { ...s, ...room.kitchen?.custom, ...patch } });
+  const [unit, setUnit] = useState<UnitType>(unitTypes[0]);
+  const [width, setWidth] = useState(unitTypes[0].width);
   const units = kitchenItems(design, room).filter((i) => i.type === 'cabinet');
-  const schedule = cabinetSchedule(units);
+  const schedule = cabinetSchedule(units, kind);
+  // Appliances to put in the cabinetry: fridges in a kitchen; washer and dryer (on the floor or stacked) in a laundry.
+  const appliances: { key: string; name: string; meta: string; itemType: string; preset?: { elevation: number; name: string } }[] =
+    kind === 'laundry'
+      ? [
+          { key: 'washer', name: 'Washing machine', meta: `${ITEM_MAP.washer.width} × ${ITEM_MAP.washer.depth} × ${ITEM_MAP.washer.height}`, itemType: 'washer' },
+          { key: 'dryer', name: 'Dryer', meta: `${ITEM_MAP.dryer.width} × ${ITEM_MAP.dryer.depth} × ${ITEM_MAP.dryer.height}`, itemType: 'dryer' },
+          { key: 'dryer_up', name: 'Dryer, stacked', meta: 'On the shelf of a washer / dryer tower (925 mm up)', itemType: 'dryer', preset: { elevation: 925, name: 'Dryer (stacked)' } },
+        ]
+      : FRIDGES.map((f) => ({ key: f.type, name: f.name, meta: `${f.width} × ${f.depth} × ${f.height} · ${f.litres}`, itemType: f.type }));
   const bench = BENCH_MATERIALS[s.bench] ?? BENCH_MATERIALS.stone;
 
   const pickUnit = (u: UnitType) => {
@@ -35,7 +48,7 @@ export default function CustomCabinetry({ room }: { room: Room }) {
       <div className="kd-section">
         <div className="kd-label">1. Add units</div>
         <div className="cc-units">
-          {UNIT_TYPES.map((u) => (
+          {unitTypes.map((u) => (
             <button key={u.cls} className={`kd-unit${placing && unit.cls === u.cls ? ' active' : ''}`} onClick={() => pickUnit(u)}>
               <span className="kd-unit-name">{u.name}</span>
             </button>
@@ -72,6 +85,23 @@ export default function CustomCabinetry({ room }: { room: Room }) {
           {placing ? 'Click in the plan to place it; it snaps to walls and the units beside it. Ctrl+click to keep placing.' : 'Pick a unit and width, then click in the plan.'} Select a placed
           unit to change it, or use Fill gap to stretch it to the next wall or unit.
         </p>
+      </div>
+
+      <div className="kd-section">
+        <div className="kd-label">Appliances</div>
+        <div className="kd-list">
+          {appliances.map((a) => (
+            <button
+              key={a.key}
+              className={`kd-unit${tool.kind === 'place' && tool.itemType === a.itemType && (tool.preset?.elevation ?? 0) === (a.preset?.elevation ?? 0) ? ' active' : ''}`}
+              onClick={() => store.setTool({ kind: 'place', itemType: a.itemType, ...(a.preset ? { preset: a.preset } : {}) })}
+              title="Typical size; check your model's space needs"
+            >
+              <span className="kd-unit-name">{a.name}</span>
+              <span className="kd-unit-meta">{a.meta}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="kd-section">

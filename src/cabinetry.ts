@@ -2,6 +2,9 @@ import { itemClearances } from './clearance';
 import { add, mul } from './geometry';
 import type { CustomKitchenStyle, Design, Item, KitchenStyle } from './types';
 
+/** Kitchens and laundries (see kitchen.ts). */
+export type JoineryRoom = 'kitchen' | 'laundry';
+
 /**
  * Custom cabinetry for the kitchen designer: made-to-measure units in any width, finished in the kitchen's own
  * door, benchtop and handle choices (not tied to a flat-pack range). Units are items of type 'cabinet' drawn by the
@@ -71,7 +74,9 @@ export const HANDLE_FINISHES: Record<string, { name: string; hex: string }> = {
   gunmetal: { name: 'Gunmetal', hex: '#5b5d60' },
 };
 
-export function defaultCustomStyle(): CustomStyle {
+export function defaultCustomStyle(kind: JoineryRoom = 'kitchen'): CustomStyle {
+  // Laundries usually get a hard-wearing laminate top.
+  if (kind === 'laundry') return { ...defaultCustomStyle('kitchen'), bench: 'laminate', benchColor: '#efeeea', benchT: 33 };
   return {
     profile: 'flat',
     doorColor: '#f3f2ee',
@@ -87,9 +92,9 @@ export function defaultCustomStyle(): CustomStyle {
   };
 }
 
-export const customStyle = (k: KitchenStyle | undefined): CustomStyle => ({ ...defaultCustomStyle(), ...k?.custom });
+export const customStyle = (k: KitchenStyle | undefined, kind: JoineryRoom = 'kitchen'): CustomStyle => ({ ...defaultCustomStyle(kind), ...k?.custom });
 
-export type UnitKind = 'base' | 'drawer' | 'sink' | 'cooktop' | 'dishwasher' | 'wall' | 'rangehood' | 'fridge' | 'tall' | 'oven_tower' | 'panel' | 'benchtop';
+export type UnitKind = 'base' | 'drawer' | 'sink' | 'cooktop' | 'dishwasher' | 'tub' | 'space' | 'wall' | 'rangehood' | 'fridge' | 'tall' | 'oven_tower' | 'tower' | 'panel' | 'benchtop';
 
 export interface UnitType {
   cls: UnitKind;
@@ -103,6 +108,10 @@ export interface UnitType {
   /** Height for wall units (mm). */
   height?: number;
   drawers?: number;
+  /** Only offered in these rooms (unset = kitchens and laundries). */
+  rooms?: JoineryRoom[];
+  /** Its name in a laundry, if different. */
+  laundryName?: string;
 }
 
 const UNDER_W = [300, 400, 450, 500, 600, 700, 800, 900, 1000, 1200];
@@ -111,23 +120,40 @@ const WALL_W = [300, 400, 450, 500, 600, 800, 900, 1000];
 export const UNIT_TYPES: UnitType[] = [
   { cls: 'base', name: 'Base cabinet', width: 600, widths: UNDER_W, depth: 600, place: 'under' },
   { cls: 'drawer', name: 'Drawers', width: 600, widths: UNDER_W, depth: 600, place: 'under', drawers: 3 },
-  { cls: 'sink', name: 'Sink cabinet', width: 900, widths: [600, 800, 900, 1000, 1200], depth: 600, place: 'under' },
-  { cls: 'cooktop', name: 'Oven under cooktop', width: 600, widths: [600, 900], depth: 600, place: 'under' },
-  { cls: 'dishwasher', name: 'Dishwasher', width: 600, widths: [450, 600], depth: 600, place: 'under' },
+  { cls: 'sink', name: 'Sink cabinet', width: 900, widths: [600, 800, 900, 1000, 1200], depth: 600, place: 'under', rooms: ['kitchen'] },
+  { cls: 'tub', name: 'Laundry tub cabinet', width: 600, widths: [450, 600, 800, 900], depth: 600, place: 'under', rooms: ['laundry'] },
+  { cls: 'cooktop', name: 'Oven under cooktop', width: 600, widths: [600, 900], depth: 600, place: 'under', rooms: ['kitchen'] },
+  { cls: 'dishwasher', name: 'Dishwasher', width: 600, widths: [450, 600], depth: 600, place: 'under', rooms: ['kitchen'] },
+  // An open gap under the benchtop for a front-loader, dryer or freestanding appliance.
+  { cls: 'space', name: 'Appliance space', width: 600, widths: [600, 650, 700, 900, 1300], depth: 600, place: 'under', laundryName: 'Washer / dryer space' },
   { cls: 'wall', name: 'Wall cabinet', width: 600, widths: WALL_W, depth: 350, place: 'wall', height: 720 },
-  { cls: 'rangehood', name: 'Rangehood cabinet', width: 900, widths: [600, 900, 1200], depth: 350, place: 'wall', height: 400 },
-  { cls: 'fridge', name: 'Over-fridge cabinet', width: 900, widths: [700, 900, 1000], depth: 600, place: 'wall', height: 400 },
-  { cls: 'tall', name: 'Pantry / tall', width: 600, widths: [300, 450, 600, 900], depth: 600, place: 'tall' },
-  { cls: 'oven_tower', name: 'Oven tower', width: 600, widths: [600], depth: 600, place: 'tall', drawers: 2 },
+  { cls: 'rangehood', name: 'Rangehood cabinet', width: 900, widths: [600, 900, 1200], depth: 350, place: 'wall', height: 400, rooms: ['kitchen'] },
+  { cls: 'fridge', name: 'Over-fridge cabinet', width: 900, widths: [700, 900, 1000], depth: 600, place: 'wall', height: 400, rooms: ['kitchen'] },
+  { cls: 'tall', name: 'Pantry / tall', width: 600, widths: [300, 450, 600, 900], depth: 600, place: 'tall', laundryName: 'Broom / linen cupboard' },
+  { cls: 'oven_tower', name: 'Oven tower', width: 600, widths: [600], depth: 600, place: 'tall', drawers: 2, rooms: ['kitchen'] },
+  // Washer on the floor, dryer on a shelf above it, and a cupboard over the top.
+  { cls: 'tower', name: 'Washer / dryer tower', width: 700, widths: [650, 700, 750], depth: 650, place: 'tall', rooms: ['laundry'] },
   { cls: 'panel', name: 'End panel', width: 18, widths: [18, 33], depth: 600, place: 'panel' },
   { cls: 'benchtop', name: 'Benchtop', width: 1800, widths: [1200, 1800, 2400, 3000, 3600], depth: 600, place: 'top' },
 ];
 
 export const UNIT_MAP: Record<string, UnitType> = Object.fromEntries(UNIT_TYPES.map((u) => [u.cls, u]));
 
+/** The units offered in a kitchen or a laundry, named for that room. */
+export function unitsFor(kind: JoineryRoom): UnitType[] {
+  return UNIT_TYPES.filter((u) => !u.rooms || u.rooms.includes(kind)).map((u) => (kind === 'laundry' && u.laundryName ? { ...u, name: u.laundryName } : u));
+}
+
+/** A unit's name in this room. */
+export const unitName = (cls: string, kind: JoineryRoom) => {
+  const u = UNIT_MAP[cls];
+  return u ? (kind === 'laundry' && u.laundryName) || u.name : 'Cabinet';
+};
+
 /** Doors a unit of this width gets: one up to 500 mm, then two or more, at most about 600 mm each. */
 function doorsFor(u: UnitType, width: number) {
-  if (u.cls === 'drawer' || u.cls === 'dishwasher' || u.cls === 'cooktop' || u.cls === 'panel' || u.cls === 'benchtop') return 0;
+  if (u.cls === 'drawer' || u.cls === 'dishwasher' || u.cls === 'cooktop' || u.cls === 'panel' || u.cls === 'benchtop' || u.cls === 'space') return 0;
+  if (u.cls === 'tower') return width <= 600 ? 1 : 2; // the cupboard over the top
   return width <= 500 ? 1 : Math.max(2, Math.ceil(width / 600));
 }
 
@@ -187,20 +213,20 @@ export function restyleCustom(it: Item, s: CustomStyle): Item {
 }
 
 /** Change what kind of unit this is, keeping its width and its back where it was. */
-export function changeUnit(it: Item, cls: string, s: CustomStyle): Item {
+export function changeUnit(it: Item, cls: string, s: CustomStyle, kind: JoineryRoom = 'kitchen'): Item {
   const u = UNIT_MAP[cls];
   if (!u) return it;
   const next = customPreset(u, it.width, s);
   const dd = ((next.depth ?? it.depth) - it.depth) / 2;
   const r = (it.rotation * Math.PI) / 180;
-  return { ...it, ...next, name: `${u.name} ${it.width}`, x: Math.round(it.x - Math.sin(r) * dd), y: Math.round(it.y + Math.cos(r) * dd), options: { ...next.options } } as Item;
+  return { ...it, ...next, name: `${unitName(cls, kind)} ${it.width}`, x: Math.round(it.x - Math.sin(r) * dd), y: Math.round(it.y + Math.cos(r) * dd), options: { ...next.options } } as Item;
 }
 
 /**
  * Widen a unit to close the gaps either side of it (to the next wall or unit along its run, up to `max` each side),
  * so a made-to-measure cabinet fills its space exactly. Null when there's no gap to fill.
  */
-export function fillGap(d: Design, it: Item, max = 1200): Item | null {
+export function fillGap(d: Design, it: Item, max = 1200, kind: JoineryRoom = 'kitchen'): Item | null {
   const side = (title: string) => itemClearances(d, it).find((c) => c.title === title && c.dist <= max)?.dist ?? 0;
   const right = side('Clearance to the right');
   const left = side('Clearance to the left');
@@ -211,11 +237,11 @@ export function fillGap(d: Design, it: Item, max = 1200): Item | null {
   const width = Math.round(it.width + left + right);
   const u = UNIT_MAP[String(it.options?.cls ?? 'base')];
   const doors = u ? doorsFor(u, width) : Number(it.options?.doors ?? 1);
-  return { ...it, x: Math.round(c.x), y: Math.round(c.y), width, name: `${u?.name ?? 'Cabinet'} ${width}`, options: { ...(it.options ?? {}), doors } };
+  return { ...it, x: Math.round(c.x), y: Math.round(c.y), width, name: `${u ? unitName(u.cls, kind) : 'Cabinet'} ${width}`, options: { ...(it.options ?? {}), doors } };
 }
 
 /** Cabinet schedule: each kind and size of unit, with how many (for quoting with a cabinet maker). */
-export function cabinetSchedule(items: Item[]): { name: string; size: string; fronts: string; qty: number }[] {
+export function cabinetSchedule(items: Item[], kind: JoineryRoom = 'kitchen'): { name: string; size: string; fronts: string; qty: number }[] {
   const m = new Map<string, { name: string; size: string; fronts: string; qty: number }>();
   for (const it of items) {
     const o = it.options ?? {};
@@ -224,8 +250,9 @@ export function cabinetSchedule(items: Item[]): { name: string; size: string; fr
     const drawers = Number(o.drawers ?? 0);
     const fronts = [doors && `${doors} door${doors > 1 ? 's' : ''}`, drawers && `${drawers} drawer${drawers > 1 ? 's' : ''}`].filter(Boolean).join(', ');
     const size = `${it.width} × ${it.height} × ${it.depth}`;
-    const key = `${u?.name}|${size}|${fronts}`;
-    const row = m.get(key) ?? { name: u?.name ?? it.name, size, fronts, qty: 0 };
+    const name = u ? unitName(u.cls, kind) : it.name;
+    const key = `${name}|${size}|${fronts}`;
+    const row = m.get(key) ?? { name, size, fronts, qty: 0 };
     row.qty++;
     m.set(key, row);
   }

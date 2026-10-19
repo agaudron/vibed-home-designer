@@ -508,10 +508,17 @@ export const isLeafDoor = (o: Opening) => o.kind === 'door' || o.kind === 'doubl
 /** Door jamb lining thickness each side of a doorway, and the gap round / between door leaves (mm). */
 export const DOOR_JAMB = 32;
 export const DOOR_GAP = 3;
-/** Double doors: the opening width for two leaves of this width (gaps at both edges and between the leaves). */
-export const doubleDoorWidth = (leaf: number) => 2 * leaf + 3 * DOOR_GAP + 2 * DOOR_JAMB;
+/** A single door's leaf: its size (the opening) less a jamb and a gap each side. */
+export const singleDoorLeaf = (size: number) => size - 2 * DOOR_JAMB - 2 * DOOR_GAP;
+/**
+ * Double doors are sized like single doors, so a pair of "720" doors has the same leaves as a single 720 door:
+ * the opening for two such leaves (gaps at both edges and between them, and a jamb each side).
+ */
+export const doubleDoorWidth = (size: number) => 2 * singleDoorLeaf(size) + 3 * DOOR_GAP + 2 * DOOR_JAMB;
 /** Double doors: the width of each leaf in an opening this wide. */
 export const doubleDoorLeaf = (width: number) => (width - 3 * DOOR_GAP - 2 * DOOR_JAMB) / 2;
+/** Double doors: the single-door size each leaf matches (the inverse of doubleDoorWidth). */
+export const doubleDoorSize = (width: number) => doubleDoorLeaf(width) + 2 * DOOR_JAMB + 2 * DOOR_GAP;
 
 /**
  * The door as it should be drawn: a door on an inside wall with no design of its own follows the house

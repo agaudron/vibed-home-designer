@@ -107,6 +107,9 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
       const cls = String(options?.cls ?? 'base');
       const as: Record<string, string> = {
         sink: 'sink_cabinet',
+        tub: 'laundry_tub',
+        space: 'dashed',
+        tower: 'tall_cabinet',
         cooktop: 'cooktop_cabinet',
         dishwasher: 'dishwasher',
         tall: 'tall_cabinet',
@@ -120,6 +123,7 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
         benchtop: 'none',
       };
       const t = as[cls] ?? 'base_cabinet';
+      if (t === 'dashed') return <rect x={-hw + 30} y={-hd + 30} width={w - 60} height={d - 60} className="sym-dashed" />; // an open gap
       return t === 'none' ? null : itemSymbol(t, w, d, options);
     }
     case 'abi_vanity':

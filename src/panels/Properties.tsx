@@ -3,7 +3,7 @@ import { SOLAR_DEFAULTS, SOLAR_PANELS, solarArraySize, GUTTER_STYLES, ROOF_MATER
 import { BOARD_FLOORS, CORNICES, TILE_FLOORS, floorOf, DIRECTIONAL_FLOORS, LININGS, SKIRTINGS, WINDOW_TRIM, hasOpeningTrim, houseTrimType, houseTrimWidth, liningFor, openingTrim, wallFaces } from '../trims';
 import type { TrimProfile } from '../trims';
 import { addOrSelectRoof, detectRoomsWithMessage, duplicateWalls, removeDuplicateWallsWithMessage, squareUpWallsWithMessage, deleteSelection, duplicateSelection, isDoorKind, setGlobalDoorHeight, setGlobalWallColor, setGlobalWallHeight, rotateSelection, setWallLength, splitWall } from '../actions';
-import { faceColor, pointInPolygon, clampOpeningOffset, DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, doubleDoorWidth, DEFAULT_INTERIOR_DOOR, STACKER_FRAME, STACKER_MAX_PANELS, STACKER_OVERLAP, stackerWidth, deg, dist, effectiveDoor, isLeafDoor, sidelights, wallClearLength, formatArea, normAngle, polygonArea, roomInterior, wallFrame } from '../geometry';
+import { faceColor, pointInPolygon, clampOpeningOffset, DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, doubleDoorSize, doubleDoorWidth, DEFAULT_INTERIOR_DOOR, STACKER_FRAME, STACKER_MAX_PANELS, STACKER_OVERLAP, stackerWidth, deg, dist, effectiveDoor, isLeafDoor, sidelights, wallClearLength, formatArea, normAngle, polygonArea, roomInterior, wallFrame } from '../geometry';
 import { QUALITIES, setQuality, store, useStore } from '../store';
 import type { RenderQuality } from '../store';
 import FloorAreas from './FloorAreas';
@@ -19,11 +19,11 @@ import ElectricProps from './ElectricProps';
 import { floorLevelOf } from '../levels';
 import { outdoorOpts } from '../outdoor';
 import { GroundLevel, PatioOptions, StepOptions } from './OutdoorProps';
-import { changeUnit, customStyle, fillGap, UNIT_MAP, UNIT_TYPES } from '../cabinetry';
+import { changeUnit, customStyle, fillGap, UNIT_MAP, unitsFor } from '../cabinetry';
 import { KABOODLE_PRODUCTS } from '../kaboodle';
 import { DOOR_STOP_SIZE, DOOR_STOPS, doorStopProduct, doorStopUrl } from '../doorStops';
 import { ABI_HANDLE_BY_SLUG, ABI_HANDLES, abiHandleName, abiHandleUrl } from '../doorHandles';
-import { isKitchenRoom, isUnderBench, kitchenStyle, openKitchenDesigner, swapProduct } from '../kitchen';
+import { designerName, isKitchenRoom, isUnderBench, joineryKind, kitchenStyle, openKitchenDesigner, swapProduct } from '../kitchen';
 import { applyConstructionWithMessage, applyWallConstructionWithMessage, CONSTRUCTIONS, constructionThickness } from '../construction';
 import type { Construction, CorniceType, Design, DoorDesign, LiningType, GarageStyle, Facade, FloorFinish, FloorSize, SkirtingType, Item, Opening, OpeningKind, Roof, RoofExtension, RoofStyle, Room, Wall, DoorStop, DoorHandleSpec } from '../types';
 import { ColorField, Field, NumField, TextField, Toggle } from './Fields';
@@ -246,25 +246,26 @@ function OpeningProps({ o: raw, w }: { o: Opening; w: Wall }) {
         <>
           <NumField
             label="Each door"
-            value={Math.round(doubleDoorLeaf(o.width) * 10) / 10}
+            value={Math.round(doubleDoorSize(o.width) * 10) / 10}
             min={300}
             max={1200}
             onChange={(v) => {
               const width = doubleDoorWidth(v);
               upd('openings', o.id, { width, offset: clampOpeningOffset({ ...o, width }, L) });
             }}
-            hint={`Width of each door leaf; the opening is 2 doors + ${DOOR_GAP} mm gaps at both edges and between them + the jambs`}
+            hint="Door size of each leaf, as for a single door: a pair of 720 doors has the same leaves as a single 720 door"
           />
           <Presets
             values={[620, 720, 820, 920]}
-            current={doubleDoorLeaf(o.width)}
+            current={Math.round(doubleDoorSize(o.width))}
             onPick={(v) => {
               const width = doubleDoorWidth(v);
               upd('openings', o.id, { width, offset: clampOpeningOffset({ ...o, width }, L) });
             }}
           />
           <p className="note">
-            Two {Math.round(doubleDoorLeaf(o.width) * 10) / 10} mm doors with {DOOR_GAP} mm gaps at the edges and in the middle, in a {o.width} mm opening (including {DOOR_JAMB} mm jambs each side).
+            Two {Math.round(doubleDoorSize(o.width))} doors (leaves {Math.round(doubleDoorLeaf(o.width))} mm, the same as a single {Math.round(doubleDoorSize(o.width))} door) with {DOOR_GAP} mm
+            gaps at the edges and in the middle, in a {o.width} mm opening (including {DOOR_JAMB} mm jambs each side).
           </p>
         </>
       )}
@@ -484,9 +485,12 @@ function RoomProps({ r }: { r: Room }) {
       {isKitchenRoom(r) && (
         <div className="kd-open">
           <button className="primary" onClick={() => openKitchenDesigner(r.id)}>
-            Open kitchen designer
+            Open {designerName(r).toLowerCase()}
           </button>
-          <p className="note">Lay out the kitchen with Kaboodle cabinets, pick door colours, benchtops and handles, and get a shopping list.</p>
+          <p className="note">
+            Lay out the {joineryKind(r)} with made-to-measure (or Kaboodle) cabinets{joineryKind(r) === 'laundry' ? ', a tub, washer and dryer spaces' : ''}, pick door colours, benchtops and handles,
+            and get a cabinet schedule.
+          </p>
         </div>
       )}
       <RoomFinishes r={r} />
@@ -563,6 +567,8 @@ function DesignProps({ design }: { design: Design }) {
         <Toggle label="Show wall lengths" value={s.showDimensions} onChange={(v) => setS({ showDimensions: v })} />
         <Toggle label="Show room sizes (width × length and area)" value={s.showRoomDimensions} onChange={(v) => setS({ showRoomDimensions: v })} />
         <Toggle label="Show each room's side measurements" value={!!s.showRoomSides} onChange={(v) => setS({ showRoomSides: v })} />
+        <Toggle label="Show outside dimensions (room sizes along each side of the house)" value={!!s.showOutsideDims} onChange={(v) => setS({ showOutsideDims: v })} />
+        {s.showOutsideDims && <Toggle label="Include wall thicknesses" value={s.outsideDimWalls !== false} onChange={(v) => setS({ outsideDimWalls: v })} />}
         <Toggle label="Show clearance measurements (green gaps to walls and items)" value={!!s.showClearances} onChange={(v) => setS({ showClearances: v })} />
       </Section>
       <Section title="Shortcuts">
@@ -783,7 +789,7 @@ function KaboodleOptions({ it }: { it: Item }) {
         ) : null}
       </p>
       {room && isKitchenRoom(room) && kitchenOpen !== room.id && (
-        <button onClick={() => openKitchenDesigner(room.id)}>Open kitchen designer</button>
+        <button onClick={() => openKitchenDesigner(room.id)}>Open {designerName(room).toLowerCase()}</button>
       )}
     </>
   );
@@ -796,8 +802,10 @@ function CabinetOptions({ it }: { it: Item }) {
   const o = it.options ?? {};
   const cls = String(o.cls ?? 'base');
   const room = design.rooms.find((r) => r.points.length >= 3 && pointInPolygon({ x: it.x, y: it.y }, r.points));
-  const style = customStyle(room?.kitchen);
-  const fronts = UNIT_MAP[cls] && !['panel', 'benchtop', 'dishwasher', 'cooktop', 'oven_tower'].includes(cls);
+  const kind = (room && joineryKind(room)) || 'kitchen';
+  const style = customStyle(room?.kitchen, kind);
+  const choices = unitsFor(kind);
+  const fronts = UNIT_MAP[cls] && !['panel', 'benchtop', 'dishwasher', 'cooktop', 'oven_tower', 'space'].includes(cls);
   const count = (key: 'doors' | 'drawers', max: number) => (
     <Field label={key === 'doors' ? 'Doors' : 'Drawers'}>
       <span className="presets inline">
@@ -810,7 +818,7 @@ function CabinetOptions({ it }: { it: Item }) {
     </Field>
   );
   const fill = () => {
-    const next = fillGap(design, it);
+    const next = fillGap(design, it, 1200, kind);
     if (!next) store.flash('No gap beside it to fill (within 1.2 m)');
     else {
       upd('items', it.id, next);
@@ -821,8 +829,9 @@ function CabinetOptions({ it }: { it: Item }) {
     <>
       <div className="sub-head">Custom cabinet</div>
       <Field label="Unit">
-        <select value={cls} onChange={(e) => store.update((d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? changeUnit(x, e.target.value, style) : x)) }))}>
-          {UNIT_TYPES.map((u) => (
+        <select value={cls} onChange={(e) => store.update((d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? changeUnit(x, e.target.value, style, kind) : x)) }))}>
+          {!choices.some((u) => u.cls === cls) && UNIT_MAP[cls] && <option value={cls}>{UNIT_MAP[cls].name}</option>}
+          {choices.map((u) => (
             <option key={u.cls} value={u.cls}>
               {u.name}
             </option>
@@ -830,13 +839,13 @@ function CabinetOptions({ it }: { it: Item }) {
         </select>
       </Field>
       {fronts && count('doors', 4)}
-      {fronts && cls !== 'wall' && cls !== 'rangehood' && cls !== 'fridge' && count('drawers', 4)}
+      {fronts && cls !== 'wall' && cls !== 'rangehood' && cls !== 'fridge' && cls !== 'tower' && count('drawers', 4)}
       <p className="note">{[o.door && `Doors: ${o.door}`, isUnderBench(cls) && o.benchName && `benchtop: ${o.benchName}`, o.handleName && `handles: ${o.handleName}`].filter(Boolean).join(' · ')}</p>
       <div className="actions">
         <button onClick={fill} title="Widen it to close the gap to the next wall or unit on each side">
           Fill gap
         </button>
-        {room && isKitchenRoom(room) && kitchenOpen !== room.id && <button onClick={() => openKitchenDesigner(room.id)}>Open kitchen designer</button>}
+        {room && isKitchenRoom(room) && kitchenOpen !== room.id && <button onClick={() => openKitchenDesigner(room.id)}>Open {designerName(room).toLowerCase()}</button>}
       </div>
     </>
   );

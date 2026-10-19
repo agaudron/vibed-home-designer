@@ -262,6 +262,10 @@ export interface Settings {
   showClearances?: boolean;
   /** Each room's side lengths drawn along its walls (the room's overall size and area always show). Off by default. */
   showRoomSides?: boolean;
+  /** Dimension strings round the outside of the house: each room's internal size along each side, and the overall size. */
+  showOutsideDims?: boolean;
+  /** With the outside dimensions: label the wall thicknesses too (default on). */
+  outsideDimWalls?: boolean;
   /** Colour of walls in 3D. */
   wallColor: string;
   /** Height of hinged / cavity doors. */

@@ -233,9 +233,29 @@ function kaboodleUnit(b: Builder, it: Item) {
       } else doorRow(LEGS, H, z, doors || 1, 'middle');
       return;
     }
+    case 'tower': {
+      // Washer / dryer tower: open slots for a washer on the floor and a dryer on a shelf, a cupboard over the top.
+      const cd = d - 18;
+      const zb = -d / 2;
+      const t = 18;
+      const shelf = 900;
+      const top = Math.min(h - 300, 1820);
+      for (const sx of [-1, 1]) b.box(t, h, cd, sx * (w / 2 - t / 2), 0, zb + cd / 2, color);
+      b.box(w - 2 * t, h, 6, 0, 0, zb + 3, shade(color, 0.92)); // back
+      b.box(w - 2 * t, 25, cd, 0, shelf, zb + cd / 2, color); // dryer shelf
+      b.box(w - 2 * t, t, cd, 0, top, zb + cd / 2, color); // bottom of the cupboard
+      b.box(w, t, cd, 0, h - t, zb + cd / 2, color);
+      doorRow(top, h - top, zb + cd, doors || 1, 'bottom');
+      return;
+    }
     default: {
       // Floor units under the bench: legs + kickboard, carcass, fronts, benchtop.
       const cd = d - 20 - 18;
+      if (cls === 'space') {
+        // Appliance space: just the benchtop running over the gap.
+        b.box(w, benchT, d, 0, h - benchT, 0, benchCol, { rough: 0.5 });
+        return;
+      }
       const body = h - LEGS - benchT;
       const z = -d / 2 + cd;
       b.box(w - 10, LEGS - 10, 16, 0, 0, z - 60, shade(color, 0.85));
@@ -254,9 +274,12 @@ function kaboodleUnit(b: Builder, it: Item) {
         doorRow(LEGS, body - 150, z, doors, 'top');
       } else if (drawers > 0) drawerStack(LEGS, body, z, drawers);
       else doorRow(LEGS, body, z, doors || 1, 'top');
-      if (cls === 'sink') {
-        b.box(Math.min(w - 100, 760), 3, d * 0.55, 0, h, 10, '#8e959c', METAL);
-        b.box(Math.min(w - 100, 760) - 30, 2, d * 0.55 - 30, 0, h + 2, 10, '#5d646b', METAL);
+      if (cls === 'sink' || cls === 'tub') {
+        // A laundry tub is a single big, deep bowl.
+        const bw = cls === 'tub' ? Math.min(w - 80, 560) : Math.min(w - 100, 760);
+        const bd = d * (cls === 'tub' ? 0.68 : 0.55);
+        b.box(bw, 3, bd, 0, h, 10, '#8e959c', METAL);
+        b.box(bw - 30, 2, bd - 30, 0, h + 2, 10, cls === 'tub' ? '#4c5258' : '#5d646b', METAL);
         b.cyl(18, 18, 260, 0, h, -d / 2 + 70, STEEL, METAL);
         b.box(24, 24, 180, 0, h + 236, -d / 2 + 150, STEEL, METAL);
       }

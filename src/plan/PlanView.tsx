@@ -55,6 +55,7 @@ import { nearestWall, snapItem, snapPoint } from './snap';
 import type { SnapResult } from './snap';
 import { itemOutline, itemSymbol } from './symbols';
 import { ElectricalLayer } from './electrical';
+import { OutsideDims, outsideDimensions } from './outsideDims';
 import { ELEC_MAP, elecPlacement, linkRefFor, litLights, newElecPoint, productOf } from '../electrical';
 import { flickSwitch, startLinking, toggleLink } from '../elecActions';
 
@@ -795,6 +796,7 @@ export default function PlanView() {
   const isSel = (kind: string, id: string) => selection?.kind === kind && selection.id === id;
 
   const allOpenings = useMemo(() => effectiveOpenings(design.walls, design.openings), [design.walls, design.openings]);
+  const outsideStrings = useMemo(() => (design.settings.showOutsideDims ? outsideDimensions(design) : []), [design]);
   const wallEls: ReactNode[] = [];
   const wallLabels: ReactNode[] = [];
   const planCentre = useMemo(() => {
@@ -829,7 +831,9 @@ export default function PlanView() {
     const roomOn = (sd: number) => design.rooms.some((r) => pointInPolygon(add(mid, mul(f.n, sd * (ht + 150))), r.points));
     const showRooms = design.settings.showRoomDimensions && !!design.settings.showRoomSides;
     const interior = showRooms && roomOn(1) && roomOn(-1);
-    if (design.settings.showDimensions && f.length * s > 40) {
+    // Outside dimension strings measure the outside walls, so their own length labels would only repeat them.
+    const outsideWall = design.settings.showOutsideDims && (exteriorSides(design.walls).map.get(w.id)?.pos || exteriorSides(design.walls).map.get(w.id)?.neg);
+    if (design.settings.showDimensions && f.length * s > 40 && !outsideWall) {
       let pos: Vec;
       if (interior) {
         // Inside walls (rooms on both sides): label sits on the wall itself, so it never collides with the
@@ -1514,6 +1518,7 @@ export default function PlanView() {
               return <polygon key={key} points={pts.map((q) => `${q.x},${q.y}`).join(' ')} />;
             })}
           </g>
+          {design.settings.showOutsideDims && <OutsideDims strings={outsideStrings} px={px} showWalls={design.settings.outsideDimWalls !== false} />}
           <g className="dims">{design.dimensions.map((m) => dimLine(m.a, m.b, m.id, { id: m.id, selected: isSel('dimension', m.id) }))}</g>
           {electric && <ElectricalLayer design={design} px={px} selection={selection} tool={tool} ghost={ghostElec?.e ?? null} lit={lit} />}
           {roofRes && <RoofOverlay r={roofRes} fs={fs} />}
