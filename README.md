@@ -70,7 +70,7 @@ The image builds the app and serves it with nginx. Your plans are stored in your
 
 ## Terms of Service & Privacy Policy
 
-Home Designer is a design and visualisation tool only: not building, structural or engineering advice, and its measurements and estimates are approximate. The full **Terms of Service**, **Privacy Policy** and **Brand Disclosure** are in the app (a notice on first visit, and links at the bottom of **⚙ Settings**). The brands featured aren't sponsors: no payments, kickbacks or affiliate links. In short: no accounts, analytics or tracking; designs stay in your browser and your own files; the walk-through music loads YouTube's player.
+Home Designer is a design and visualisation tool only: not building, structural or engineering advice, and its measurements and estimates are approximate. The full **Terms of Service**, **Privacy Policy** and **Brand Disclosure** are in the app (a notice on first visit, and links at the bottom of **⚙ Settings**). The brands featured aren't sponsors: no payments, kickbacks or affiliate links. In short: no accounts, analytics or tracking; designs stay in your browser and your own files (or in a share link, if you choose to send one: the design is packed into the link after the `#`, which isn't sent to the web host); the walk-through music loads YouTube's player.
 
 ## Shortcuts
 

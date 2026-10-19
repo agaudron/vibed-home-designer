@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { addOrSelectRoof } from '../actions';
 import { closeElectrical, openElectrical } from '../elecActions';
 import { exportPlanSvg, exportScreenshot, openDesign, resetFileHandle, saveDesign } from '../fileio';
+import { copyShareLink } from '../share';
 import { createSampleDesign } from '../sample';
 import { emptyDesign, store, useStore } from '../store';
 import type { Tool, ViewMode } from '../types';
@@ -101,6 +102,9 @@ export default function Toolbar() {
             </div>
           )}
         </div>
+        <button onClick={() => void copyShareLink()} title="Copy a link that opens a copy of this design (the design is in the link itself; nothing is uploaded)">
+          Share link
+        </button>
       </div>
 
       <div className="group">

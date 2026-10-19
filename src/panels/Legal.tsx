@@ -156,8 +156,9 @@ function Terms() {
 
       <h3>5. Your designs</h3>
       <p>
-        Your designs are yours. They’re kept in your own browser and in any files you save; Home Designer has no server copy and can’t
-        recover lost work, so save and back up anything you care about.
+        Your designs are yours. They’re kept in your own browser, in any files you save and in any share links you send; Home Designer
+        has no server copy and can’t recover lost work, so save and back up anything you care about. Anyone you give a share link to
+        can open and copy that design.
       </p>
 
       <h3>6. Provided “as is”</h3>
@@ -197,8 +198,8 @@ function Privacy() {
       <h2>Privacy Policy</h2>
       <p className="legal-updated">Last updated {UPDATED}</p>
       <p className="legal-short">
-        <b>The short version:</b> there are no accounts, no analytics and no tracking in Home Designer, and your designs never leave
-        your device. The only outside services involved are the website host, YouTube if you play the walk-through music, and brand websites for product photos when you open a product card.
+        <b>The short version:</b> there are no accounts, no analytics and no tracking in Home Designer, and your designs stay on your
+        device unless you choose to share one with a share link. The only outside services involved are the website host, YouTube if you play the walk-through music, and brand websites for product photos when you open a product card.
       </p>
 
       <h3>What Home Designer doesn’t collect</h3>
@@ -220,6 +221,14 @@ function Privacy() {
       <p>
         None of this is sent anywhere. You can remove it at any time by clearing this site’s data in your browser settings (this also
         removes the autosave, so save your design to a file first).
+      </p>
+
+      <h3>Share links</h3>
+      <p>
+        <b>Share link</b> copies a link with your whole design packed into it (after the # in the link). It isn’t uploaded: browsers
+        don’t send that part of a link to the website, so Home Designer’s host never receives it. But anyone who has the link can
+        open the design, and wherever you paste or send it (email, chat apps) will have a copy of it under their own policies. Only
+        share links with people you’re happy to see your plans, and don’t put personal details in a design you share.
       </p>
 
       <h3>Third-party services</h3>
