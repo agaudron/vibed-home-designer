@@ -268,6 +268,8 @@ export interface Settings {
   showOutsideDims?: boolean;
   /** With the outside dimensions: label the wall thicknesses too (default on). */
   outsideDimWalls?: boolean;
+  /** With the outside dimensions: a line of window positions and sizes closest to the house (default on). */
+  outsideDimWindows?: boolean;
   /** Colour of walls in 3D. */
   wallColor: string;
   /** Height of hinged / cavity doors. */

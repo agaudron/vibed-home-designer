@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { cornerLegs, NOSE, outdoorOpts, PAVE } from '../outdoor';
+import { cornerLegs, NOSE, outdoorOpts, PAVE, verandaFloor } from '../outdoor';
 import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, FRIDGE_STYLE, SKYLIGHT_DEFAULTS, SOLAR_DEFAULTS, SOLAR_GAP, SOLAR_PANELS, VANITY_DEFAULTS } from '../catalog';
 import type { FridgeStyle } from '../catalog';
 import { DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, dressingSide, sidelights, stackerLayout } from '../geometry';
@@ -376,6 +376,8 @@ export interface ItemContext {
    * (height and normal in the item's own frame), when there's a roof showing.
    */
   sky?: { ceiling: number; shaftTop: number; roof: { y: number; n: [number, number, number] } | null; cutaway: boolean };
+  /** Height of the ground relative to the house floor (0, or below it for a raised house). */
+  ground?: number;
 }
 
 export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Group {
@@ -807,11 +809,15 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
     case 'deck':
       deck(b, it);
       break;
-    case 'veranda':
-      if (it.options?.roof === 'none') b.box(w, 100, d, 0, 0, 0, '#c9c5bd', { rough: 0.95 }); // open: just the slab
-      else if (it.underRoof && ctx.plate) coveredPorch(b, it, ctx.plate, 100, 3600);
-      else veranda(b, it, m);
+    case 'veranda': {
+      // Its floor can sit below the house floor; the roof still meets the house at the same height.
+      const top = verandaFloor(it);
+      verandaSlab(b, it, top, Math.min(0, ctx.ground ?? 0));
+      if (it.options?.roof === 'none') break; // open: just the slab
+      if (it.underRoof && ctx.plate) coveredPorch(b, it, ctx.plate, top, 3600, false);
+      else veranda(b, it, m, top);
       break;
+    }
     case 'porch':
       if (it.underRoof && ctx.plate) coveredPorch(b, it, ctx.plate, 150, 3600);
       else porch(b, it, m);
@@ -1232,13 +1238,27 @@ function sheet(g: THREE.Object3D, m: MatFn, color: string, w: number, zBack: num
   g.add(mesh);
 }
 
-function veranda(b: Builder, it: Item, m: MatFn) {
+/**
+ * A veranda's slab, its top at `top` (house-floor relative); below a raised one, fill with retaining sides down to
+ * the ground.
+ */
+function verandaSlab(b: Builder, it: Item, top: number, ground: number) {
+  const { width: w, depth: d } = it;
+  const slab = 100;
+  b.box(w, slab, d, 0, top - slab, 0, '#c9c5bd', { rough: 0.95 });
+  const fillTop = top - slab;
+  if (fillTop - ground > 5) {
+    const o = outdoorOpts({ type: 'patio', options: it.options });
+    b.box(w - 2, fillTop - ground, d - 2, 0, ground, 0, o.edgeColor, { rough: 0.92 });
+  }
+}
+
+function veranda(b: Builder, it: Item, m: MatFn, top: number) {
   const { width: w, depth: d, height: h, color } = it;
   const post = '#efece2';
   const fall = Math.tan((5 * Math.PI) / 180) * d; // 5° roof fall away from the house
   const hFront = h - fall;
-  b.box(w, 100, d, 0, 0, 0, '#c9c5bd', { rough: 0.95 }); // concrete slab
-  for (const x of postXs(w, 3600, 60)) b.box(90, hFront - 200, 90, x, 100, d / 2 - 60, post);
+  for (const x of postXs(w, 3600, 60)) b.box(90, hFront - 100 - top, 90, x, top, d / 2 - 60, post);
   b.box(w, 200, 90, 0, hFront - 200, d / 2 - 60, post); // front beam
   b.box(w, 150, 90, 0, h - 150, -d / 2 + 45, post); // ledger on the house wall
   for (const x of postXs(w, 900, 45)) {
@@ -1288,10 +1308,10 @@ function pergola(b: Builder, it: Item) {
 }
 
 /** Veranda/porch under the main roof: just the floor, posts and a beam up to the roof's eaves. */
-function coveredPorch(b: Builder, it: Item, plate: number, floor: number, span: number) {
+function coveredPorch(b: Builder, it: Item, plate: number, floor: number, span: number, slab = true) {
   const { width: w, depth: d } = it;
   const post = '#efece2';
-  b.box(w, floor, d, 0, 0, 0, '#c9c5bd', { rough: 0.95 });
+  if (slab) b.box(w, floor, d, 0, 0, 0, '#c9c5bd', { rough: 0.95 });
   for (const x of postXs(w, span, 60)) b.box(90, plate - floor - 200, 90, x, floor, d / 2 - 60, post);
   b.box(w, 200, 90, 0, plate - 200, d / 2 - 60, post);
   for (const sx of [-1, 1]) b.box(90, 200, d, sx * (w / 2 - 45), plate - 200, 0, post);

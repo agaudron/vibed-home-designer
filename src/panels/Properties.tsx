@@ -18,7 +18,7 @@ import FacadeEditor from './FacadeEditor';
 import ElectricProps from './ElectricProps';
 import { floorLevelOf } from '../levels';
 import { outdoorOpts } from '../outdoor';
-import { GroundLevel, PatioOptions, StepOptions } from './OutdoorProps';
+import { GroundLevel, PatioOptions, StepOptions, VerandaLevel } from './OutdoorProps';
 import { changeUnit, customStyle, fillGap, UNIT_MAP, unitsFor } from '../cabinetry';
 import { KABOODLE_PRODUCTS } from '../kaboodle';
 import { DOOR_STOP_SIZE, DOOR_STOPS, doorStopProduct, doorStopUrl } from '../doorStops';
@@ -416,7 +416,12 @@ function ItemProps({ it }: { it: Item }) {
           <StepOptions it={it} />
         </>
       )}
-      {it.type === 'veranda' && <VerandaRoof it={it} />}
+      {it.type === 'veranda' && (
+        <>
+          <VerandaLevel it={it} />
+          <VerandaRoof it={it} />
+        </>
+      )}
       {it.type === 'porch' && <UnderRoof it={it} />}
       {it.type === 'column' && <ColumnSupport it={it} />}
       {it.type === 'kaboodle' && <KaboodleOptions it={it} />}
@@ -570,6 +575,7 @@ function DesignProps({ design }: { design: Design }) {
         <Toggle label="Show interior door sizes" value={!!s.showDoorSizes} onChange={(v) => setS({ showDoorSizes: v })} />
         <Toggle label="Show outside dimensions (room sizes along each side of the house)" value={!!s.showOutsideDims} onChange={(v) => setS({ showOutsideDims: v })} />
         {s.showOutsideDims && <Toggle label="Include wall thicknesses" value={s.outsideDimWalls !== false} onChange={(v) => setS({ outsideDimWalls: v })} />}
+        {s.showOutsideDims && <Toggle label="Include windows" value={s.outsideDimWindows !== false} onChange={(v) => setS({ outsideDimWindows: v })} />}
         <Toggle label="Show clearance measurements (green gaps to walls and items)" value={!!s.showClearances} onChange={(v) => setS({ showClearances: v })} />
       </Section>
       <Section title="Shortcuts">

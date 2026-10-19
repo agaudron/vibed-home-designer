@@ -78,3 +78,12 @@ export function nextStep(it: Item, dir: 1 | -1): Item | null {
   const c = add(v(it.x, it.y), rot(local, rad(it.rotation)));
   return { ...it, id: uid('i'), x: Math.round(c.x), y: Math.round(c.y), width, depth, height: Math.round(top) };
 }
+
+/**
+ * A veranda's floor: the top of its slab relative to the house floor. Unset = 100 mm above it (a slab on the
+ * ground beside a slab-on-ground house, as verandas were before they had a level).
+ */
+export const verandaFloor = (it: Pick<Item, 'options'>) => {
+  const f = Number(it.options?.floor);
+  return Number.isFinite(f) && it.options?.floor !== '' && it.options?.floor !== undefined ? f : 100;
+};

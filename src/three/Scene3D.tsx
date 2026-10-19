@@ -2055,7 +2055,7 @@ function floorTextureAt(kind: FloorFinish, deg: number, size: Required<FloorSize
   return t;
 }
 
-type ItemCache = Map<string, { item: Item; selected: boolean; plate: number | undefined; sky: string; base: number; obj: THREE.Object3D }>;
+type ItemCache = Map<string, { item: Item; selected: boolean; plate: number | undefined; sky: string; base: number; ground: number; obj: THREE.Object3D }>;
 
 // ---------- Skylights ----------
 type CRect = { x0: number; y0: number; x1: number; y1: number };
@@ -2344,15 +2344,16 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
     const sky = it.type === 'skylight' || it.type === 'sun_tunnel' || it.type === 'solar_array' ? skylightContext(it, roofFaces, ceilingH, cutaway, Math.max(20, d.roof?.fascia ?? 200)) : undefined;
     const skyKey = sky ? JSON.stringify(sky) : '';
     const base = itemBase(d, it); // decks, patios and outside stairs stand on the ground
-    if (cached && cached.item === it && cached.selected === selected && cached.plate === itemPlate && cached.sky === skyKey && cached.base === base) {
+    const ground = -floorLevelOf(d);
+    if (cached && cached.item === it && cached.selected === selected && cached.plate === itemPlate && cached.sky === skyKey && cached.base === base && cached.ground === ground) {
       house.add(cached.obj);
       continue;
     }
-    const g = buildItem(it, selected ? highlight : plain, { plate: itemPlate, sky });
+    const g = buildItem(it, selected ? highlight : plain, { plate: itemPlate, sky, ground });
     g.position.set(it.x, it.elevation + base, it.y);
     g.rotation.y = -THREE.MathUtils.degToRad(it.rotation);
     g.userData.sel = { kind: 'item', id: it.id };
-    cache.set(it.id, { item: it, selected, plate: itemPlate, sky: skyKey, base, obj: g });
+    cache.set(it.id, { item: it, selected, plate: itemPlate, sky: skyKey, base, ground, obj: g });
     house.add(g);
   }
   for (const id of [...cache.keys()]) if (!seen.has(id)) cache.delete(id);

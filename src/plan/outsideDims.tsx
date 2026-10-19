@@ -22,6 +22,8 @@ export interface DimString {
   names: (string | null)[];
   /** How far in from `o`'s line each mark's wall face is (stepped sides), for the extension lines. */
   depth: number[];
+  /** Windows in the walls on this side: break points (wall ends and each window's edges), which spans are windows. */
+  windows: { marks: number[]; isWin: boolean[]; sizes: (string | null)[]; depth: number[] } | null;
 }
 
 export type SpanKind = 'wall' | 'room' | 'robe';
@@ -125,15 +127,62 @@ export function outsideDimensions(d: Design): DimString[] {
       const f = facingAt(x);
       return outer - (wallFace > -Infinity ? wallFace : f ? dot(f.a, s) + f.t / 2 : outer);
     });
-    out.push({ n: rot(s, th), u: rot(axis, th), o: rot(mul(s, outer), th), marks, kinds: pieces.map((p) => p.kind), names: pieces.map((p) => p.name), depth });
+    // Windows in the walls facing this way, from the outside corner along: gap, window, gap…
+    const wins: { a: number; b: number; depth: number; size: string }[] = [];
+    for (const f of facing)
+      for (const o of d.openings) {
+        if (o.wallId !== f.w.id || o.kind !== 'window') continue;
+        const wf = wallFrame(f.w);
+        const c = dot(L(add(f.w.start, mul(wf.u, Math.min(Math.max(o.offset, o.width / 2), wf.length - o.width / 2)))), axis);
+        wins.push({ a: c - o.width / 2, b: c + o.width / 2, depth: outer - (dot(f.a, s) + f.t / 2), size: `${Math.round(o.width)} × ${Math.round(o.height)}` });
+      }
+    let windows: DimString['windows'] = null;
+    if (wins.length) {
+      wins.sort((p, q) => p.a - q.a);
+      const first = marks[0];
+      const last = marks[marks.length - 1];
+      const wm = [first];
+      const isWin: boolean[] = [];
+      const sizes: (string | null)[] = [];
+      const wd = [depth[0]];
+      for (const w of wins) {
+        const a = Math.max(w.a, wm[wm.length - 1]);
+        const b = Math.min(w.b, last);
+        if (b - a < 1) continue;
+        if (a - wm[wm.length - 1] > 1) {
+          wm.push(a);
+          isWin.push(false);
+          sizes.push(null);
+          wd.push(w.depth);
+        } else wd[wd.length - 1] = Math.min(wd[wd.length - 1], w.depth);
+        wm.push(b);
+        isWin.push(true);
+        sizes.push(w.size);
+        wd.push(w.depth);
+      }
+      if (last - wm[wm.length - 1] > 1) {
+        wm.push(last);
+        isWin.push(false);
+        sizes.push(null);
+        wd.push(depth[depth.length - 1]);
+      }
+      windows = { marks: wm, isWin, sizes, depth: wd };
+    }
+    out.push({ n: rot(s, th), u: rot(axis, th), o: rot(mul(s, outer), th), marks, kinds: pieces.map((p) => p.kind), names: pieces.map((p) => p.name), depth, windows });
   }
   return out;
 }
 
 /** Draw the strings: room sizes (and wall thicknesses) on the inner line, the overall size outside it. */
-export function OutsideDims({ strings, px, showWalls }: { strings: DimString[]; px: (n: number) => number; showWalls: boolean }) {
+export function OutsideDims({ strings, px, showWalls, showWindows }: { strings: DimString[]; px: (n: number) => number; showWalls: boolean; showWindows: boolean }) {
   const fs = px(10.5);
   const els: ReactNode[] = [];
+  // With windows, their line goes closest to the house and the room and overall lines step out (on every side, so
+  // the lines stay lined up round the house).
+  const withWindows = showWindows && strings.some((st) => st.windows);
+  const winLine = px(30);
+  const inner = px(withWindows ? 64 : 34);
+  const overall = px(withWindows ? 90 : 60);
   strings.forEach((st, si) => {
     const P = (along: number, off: number) => add(add(st.o, mul(st.u, along)), mul(st.n, off));
     let ang = deg(Math.atan2(st.u.y, st.u.x));
@@ -157,8 +206,6 @@ export function OutsideDims({ strings, px, showWalls }: { strings: DimString[]; 
         </text>
       );
     };
-    const inner = px(34);
-    const overall = px(60);
     const m = st.marks;
     const first = m[0];
     const last = m[m.length - 1];
@@ -187,6 +234,28 @@ export function OutsideDims({ strings, px, showWalls }: { strings: DimString[]; 
       if (name && fits && len > name.length * fs * 0.85 * 0.58 + px(6)) els.push(text((a + b) / 2, inner - px(20), name, `n${si}-${i}`, 'name-t'));
     });
     els.push(text((first + last) / 2, overall - px(8), formatMm(last - first), `ov${si}`));
+    // Window line: corner to window, each window's width (and height, where it fits), and the gaps between.
+    const wn = withWindows ? st.windows : null;
+    if (wn) {
+      const wmk = wn.marks;
+      wmk.forEach((x, i) => {
+        const a = P(x, px(6) - wn.depth[i]);
+        const b = P(x, winLine + px(4));
+        els.push(<line key={`we${si}-${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="ext" />);
+        els.push(tick(x, winLine, `wt${si}-${i}`));
+      });
+      els.push(line(wmk[0], wmk[wmk.length - 1], winLine, `wl${si}`));
+      let wst = 0;
+      wmk.slice(1).forEach((b, i) => {
+        const a = wmk[i];
+        const len = b - a;
+        const size = wn.sizes[i];
+        const full = size && len > size.length * fs * 0.85 * 0.6 + px(6) ? size : formatMm(len);
+        const fits = len > full.length * fs * 0.6 + px(6);
+        const off = winLine - px(8) - (!fits && wst++ % 2 ? px(11) : 0);
+        els.push(text((a + b) / 2, off, full, `ws${si}-${i}`, wn.isWin[i] ? 'win-t' : 'gap-t'));
+      });
+    }
   });
   return <g className="outside-dims">{els}</g>;
 }

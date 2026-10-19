@@ -1,5 +1,5 @@
 import { floorLevelOf } from '../levels';
-import { EDGES, nextStep, outdoorOpts } from '../outdoor';
+import { EDGES, nextStep, outdoorOpts, verandaFloor } from '../outdoor';
 import { store, useStore } from '../store';
 import type { Item } from '../types';
 import { ColorField, Field, NumField } from './Fields';
@@ -152,6 +152,41 @@ export function StepOptions({ it }: { it: Item }) {
         Next step down: {nextLevel === 0 ? 'level with the floor' : `${Math.abs(nextLevel)} mm ${nextLevel < 0 ? 'below' : 'above'} the floor`}. Outdoor steps are often 150–180 mm risers and 300 mm+
         treads; check what’s required with your builder or certifier.
       </p>
+    </>
+  );
+}
+
+/**
+ * A veranda's floor level relative to the house floor (its roof still meets the house at the same height). Below
+ * the floor needs the house raised above the ground: going lower than the ground allows raises the house floor.
+ */
+export function VerandaLevel({ it }: { it: Item }) {
+  const design = useStore((s) => s.design);
+  const L = floorLevelOf(design);
+  const level = verandaFloor(it);
+  const setLevel = (lv: number) => {
+    if (lv >= -L) {
+      setOpt(it, { floor: lv });
+      return;
+    }
+    store.update((d) => ({ ...d, settings: { ...d.settings, floorLevel: -lv }, items: d.items.map((x) => (x.id === it.id ? { ...x, options: { ...(x.options ?? {}), floor: lv } } : x)) }));
+    store.flash(`Raised the house floor to ${-lv} mm above the ground so the veranda can sit ${-lv} mm below it`);
+  };
+  return (
+    <>
+      <NumField label="Floor vs house" value={level} min={-5000} max={1000} onChange={setLevel} hint="Top of the veranda floor relative to the house floor: 0 = level with it, −300 = 300 mm below" />
+      <div className="presets">
+        {[100, 0, -150, -300, -600, -1000].map((p) => (
+          <button key={p} className={Math.abs(level - p) < 1 ? 'on' : ''} onClick={() => setLevel(p)}>
+            {p > 0 ? `+${p}` : p === 0 ? '0' : `−${-p}`}
+          </button>
+        ))}
+      </div>
+      <p className="note">
+        {level === 0 ? 'Level with the house floor' : level < 0 ? `${-level} mm below the house floor` : `${level} mm above the house floor`}
+        {L > 0 ? ` · ${L + level} mm above the ground${L + level > 100 ? ', on fill with retaining sides' : ''}` : ''}. Its roof stays where it meets the house.
+      </p>
+      {L + level > 100 && <EdgeFields it={it} />}
     </>
   );
 }

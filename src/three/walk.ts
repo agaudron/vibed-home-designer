@@ -2,6 +2,7 @@ import { add, clampOpeningOffset, dot, effectiveOpenings, sidelights, mul, polyg
 import { exteriorSides } from '../facade';
 import type { Design, Item, Vec, Wall } from '../types';
 import { floorLevelOf, itemBase } from '../levels';
+import { verandaFloor } from '../outdoor';
 
 /**
  * First-person walk-through physics: what you bump into, what you can stand on, and where you start.
@@ -101,7 +102,7 @@ function surfaceOf(it: Item, at: number): Surface | null {
     case 'step':
       return { ...base, height: () => at + it.height };
     case 'veranda':
-      return { ...base, height: () => 100 };
+      return { ...base, height: () => at + verandaFloor(it) };
     case 'porch':
       return { ...base, height: () => 150 };
     case 'stairs':

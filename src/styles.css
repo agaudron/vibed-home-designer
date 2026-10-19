@@ -2517,3 +2517,10 @@ svg.plan.panning {
 .plan .outside-dims text.robe-t {
   fill: #8b6f47;
 }
+.plan .outside-dims text.win-t {
+  fill: #1c6fb8;
+  font-weight: 600;
+}
+.plan .outside-dims text.gap-t {
+  fill: #6a737d;
+}

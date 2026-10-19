@@ -1622,7 +1622,7 @@ export default function PlanView() {
               return <polygon key={key} points={pts.map((q) => `${q.x},${q.y}`).join(' ')} />;
             })}
           </g>
-          {design.settings.showOutsideDims && <OutsideDims strings={outsideStrings} px={px} showWalls={design.settings.outsideDimWalls !== false} />}
+          {design.settings.showOutsideDims && <OutsideDims strings={outsideStrings} px={px} showWalls={design.settings.outsideDimWalls !== false} showWindows={design.settings.outsideDimWindows !== false} />}
           <g className="dims">{design.dimensions.map((m) => dimLine(m.a, m.b, m.id, { id: m.id, selected: isSel('dimension', m.id) }))}</g>
           {electric && <ElectricalLayer design={design} px={px} selection={selection} tool={tool} ghost={ghostElec?.e ?? null} lit={lit} />}
           {roofRes && <RoofOverlay r={roofRes} fs={fs} />}
