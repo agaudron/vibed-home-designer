@@ -379,8 +379,8 @@ export interface ItemContext {
   sky?: { ceiling: number; shaftTop: number; roof: { y: number; n: [number, number, number] } | null; cutaway: boolean };
   /** Height of the ground relative to the house floor (0, or below it for a raised house). */
   ground?: number;
-  /** Kitchen units: a bulkhead from the top of the unit up to `top` (house-floor relative). */
-  bulkhead?: { top: number; color: string; shadowline: boolean };
+  /** Kitchen units: a bulkhead from the top of the unit up to `top` (house-floor relative), with a cornice. */
+  bulkhead?: { top: number; color: string; shadowline: boolean; cornice: [number, number][]; corniceShadow: boolean; ceilingColor: string };
 }
 
 export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Group {
@@ -474,6 +474,7 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
         const gap = bh.shadowline ? 10 : 0;
         if (gap) b.box(w - 30, gap, d - 30, 0, h, -15, '#2a2a2b');
         b.box(w, rise - gap, d, 0, h + gap, 0, bh.color, { rough: 0.9 });
+        if (bh.cornice.length) bulkheadCornice(b, w, d, h + rise, bh.cornice, bh.corniceShadow ? '#2b2a28' : bh.ceilingColor);
       }
       break;
     }
@@ -1238,6 +1239,37 @@ function step(b: Builder, it: Item) {
     const nz1 = out(y1, d / 2);
     paving(b, pw + nx0 + nx1, pd + nz1, cx + (nx1 - nx0) / 2, cz + nz1 / 2, h, pave, color, 600);
   }
+}
+
+/**
+ * The room's cornice along a bulkhead where it meets the ceiling (at `top`, item-local): across the front and back
+ * along both ends, mitred at the two outside corners. Profile x = out from the face, y = down from the ceiling.
+ */
+function bulkheadCornice(b: Builder, w: number, d: number, top: number, profile: [number, number][], color: string) {
+  const shape = new THREE.Shape(profile.map(([x, y]) => new THREE.Vector2(x, y)));
+  const mat = b.m(color, { rough: 0.8 });
+  (mat as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
+  const run = (face: THREE.Vector3, out: THREE.Vector3, along: THREE.Vector3, len: number, mitreStart: boolean, mitreEnd: boolean) => {
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, curveSegments: 4 });
+    // Outside corners: each end reaches further the further the profile stands out, so the pieces meet.
+    const pos = geo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      if (mitreStart && z < 0.01) pos.setZ(i, z - x);
+      else if (mitreEnd && z > len - 0.01) pos.setZ(i, z + x);
+    }
+    geo.applyMatrix4(new THREE.Matrix4().makeBasis(out, new THREE.Vector3(0, -1, 0), along).setPosition(face));
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    b.g.add(mesh);
+  };
+  const X = new THREE.Vector3(1, 0, 0);
+  const Z = new THREE.Vector3(0, 0, 1);
+  run(new THREE.Vector3(-w / 2, top, d / 2), Z, X, w, true, true); // front
+  run(new THREE.Vector3(w / 2, top, d / 2), X, Z.clone().negate(), d, true, false); // right end, front to back
+  run(new THREE.Vector3(-w / 2, top, d / 2), X.clone().negate(), Z.clone().negate(), d, true, false); // left end
 }
 
 // ---------- Reshaped outdoor structures (any four-cornered outline, see shape.ts) ----------

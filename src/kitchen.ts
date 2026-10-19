@@ -5,6 +5,7 @@ import { store } from './store';
 import { KB_LEGS } from './three/builders';
 import type { Design, Item, KitchenStyle, Room } from './types';
 import { customStyle, restyleCustom } from './cabinetry';
+import { corniceFor } from './trims';
 import type { JoineryRoom } from './cabinetry';
 
 /**
@@ -186,15 +187,33 @@ const BULKHEAD_UNITS = new Set(['wall', 'wall_corner', 'rangehood', 'fridge', 't
  * Bulkheads for a design: for each wall / tall unit in a kitchen or laundry with a bulkhead on, how high it goes
  * (the ceiling), its colour (the ceiling, or the doors), and whether there's a shadowline under it.
  */
-export function bulkheads(d: Design, ceiling: number): Map<string, { top: number; color: string; shadowline: boolean }> {
-  const out = new Map<string, { top: number; color: string; shadowline: boolean }>();
+export interface Bulkhead {
+  top: number;
+  color: string;
+  shadowline: boolean;
+  /** The room's cornice profile run along it at the ceiling (none = empty), drawn as a shadow line for square set. */
+  cornice: [number, number][];
+  corniceShadow: boolean;
+  ceilingColor: string;
+}
+
+export function bulkheads(d: Design, ceiling: number): Map<string, Bulkhead> {
+  const out = new Map<string, Bulkhead>();
   for (const r of d.rooms) {
     const bh = r.kitchen?.bulkhead;
     if (!bh?.on) continue;
+    const prof = bh.cornice === false ? null : corniceFor(d, r);
     for (const it of kitchenItems(d, r)) {
       if (!BULKHEAD_UNITS.has(String(it.options?.cls ?? ''))) continue;
       if (it.elevation + it.height >= ceiling - 20) continue; // already up to the ceiling
-      out.set(it.id, { top: ceiling, color: bh.finish === 'doors' ? it.color : d.settings.ceilingColor, shadowline: !!bh.shadowline });
+      out.set(it.id, {
+        top: ceiling,
+        color: bh.finish === 'doors' ? it.color : d.settings.ceilingColor,
+        shadowline: !!bh.shadowline,
+        cornice: prof?.points ?? [],
+        corniceShadow: !!prof?.shadow,
+        ceilingColor: d.settings.ceilingColor,
+      });
     }
   }
   return out;

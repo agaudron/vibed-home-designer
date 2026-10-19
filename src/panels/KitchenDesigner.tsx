@@ -124,6 +124,14 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
                 <input type="checkbox" checked={!!room.kitchen?.bulkhead?.shadowline} onChange={(e) => setKitchenStyle(room.id, { bulkhead: { on: true, ...room.kitchen?.bulkhead, shadowline: e.target.checked } })} />
                 10 mm shadowline under it
               </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={room.kitchen?.bulkhead?.cornice !== false}
+                  onChange={(e) => setKitchenStyle(room.id, { bulkhead: { on: true, ...room.kitchen?.bulkhead, cornice: e.target.checked } })}
+                />
+                Cornice along it (the room&rsquo;s cornice)
+              </label>
               <p className="note">Fills from the top of the wall cabinets and tall units up to the ceiling ({design.settings.ceilingHeight ? `${design.settings.ceilingHeight} mm` : 'the top of the walls'}).</p>
             </>
           )}
