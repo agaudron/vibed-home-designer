@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { cornerLegs, NOSE, outdoorOpts, PAVE, verandaFloor } from '../outdoor';
+import { localCorners, polyCuts } from '../shape';
 import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, FRIDGE_STYLE, SKYLIGHT_DEFAULTS, SOLAR_DEFAULTS, SOLAR_GAP, SOLAR_PANELS, VANITY_DEFAULTS } from '../catalog';
 import type { FridgeStyle } from '../catalog';
-import { DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, dressingSide, sidelights, stackerLayout } from '../geometry';
+import { add, DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, dressingSide, mul, norm, sidelights, stackerLayout, sub, v } from '../geometry';
 import { BACKSET, doorHandle } from '../doorClearance';
 import { humeLayout } from '../humeDoors';
-import type { Item, Opening } from '../types';
+import type { Item, Opening, Vec } from '../types';
 import { DOOR_TRIM, SKIRTINGS } from '../trims';
 import type { OpeningTrim } from '../trims';
 
@@ -807,7 +808,8 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       break;
     }
     case 'deck':
-      deck(b, it);
+      if (it.corners) deckShaped(b, it);
+      else deck(b, it);
       break;
     case 'veranda': {
       // Its floor can sit below the house floor; the roof still meets the house at the same height.
@@ -826,7 +828,8 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       pergola(b, it);
       break;
     case 'patio':
-      patio(b, it);
+      if (it.corners) patioShaped(b, it);
+      else patio(b, it);
       break;
     case 'step':
       step(b, it);
@@ -1225,6 +1228,86 @@ function step(b: Builder, it: Item) {
   }
 }
 
+// ---------- Reshaped outdoor structures (any four-cornered outline, see shape.ts) ----------
+
+/** A slab with this outline (item-local plan points), from y0 up h. */
+function prism(b: Builder, poly: Vec[], y0: number, h: number, color: string, opts?: MatOpts) {
+  if (h < 0.5) return;
+  const shape = new THREE.Shape(poly.map((p) => new THREE.Vector2(p.x, p.y)));
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+  // Shape x / y are plan x / y; extruded along +z, turned so it rises from y0 (plan y becomes the item's z).
+  geo.rotateX(Math.PI / 2);
+  geo.translate(0, y0 + h, 0);
+  const mesh = new THREE.Mesh(geo, b.m(color, opts));
+  mesh.castShadow = !opts?.opacity;
+  mesh.receiveShadow = true;
+  b.g.add(mesh);
+  return mesh;
+}
+
+/** A thin board / panel along an edge of the outline (from a to c), t thick, from y0 up h. */
+function edgeBox(b: Builder, a: Vec, c: Vec, y0: number, h: number, t: number, color: string, opts?: MatOpts) {
+  const len = Math.hypot(c.x - a.x, c.y - a.y);
+  if (len < 1) return;
+  const mesh = b.box(len, h, t, (a.x + c.x) / 2, y0, (a.y + c.y) / 2, color, opts);
+  mesh.rotation.y = -Math.atan2(c.y - a.y, c.x - a.x);
+}
+
+/** Joint / groove lines across the outline every `step` mm (along x for 'y' lines, along y for 'x' lines). */
+function outlineLines(b: Builder, poly: Vec[], along: 'x' | 'y', step: number, y: number, color: string) {
+  const vals = poly.map((p) => (along === 'x' ? p.x : p.y));
+  for (let at = Math.min(...vals) + step; at < Math.max(...vals) - 1; at += step)
+    for (const [p, q] of polyCuts(poly, along, at)) {
+      if (along === 'y') b.box(q - p, 2, 6, (p + q) / 2, y, at, color);
+      else b.box(6, 2, q - p, at, y, (p + q) / 2, color);
+    }
+}
+
+/** Deck with a reshaped outline: boards, fascia, posts at the corners and along the edges, balustrade when high. */
+function deckShaped(b: Builder, it: Item) {
+  const { height: h, color } = it;
+  const poly = localCorners(it);
+  const board = 22;
+  const top = Math.max(board, h);
+  const frame = shade(color, 0.55);
+  prism(b, poly, top - board, board, shade(color, 0.95));
+  outlineLines(b, poly, 'y', 90, top, shade(color, 0.7));
+  if (top > 60) {
+    const c = poly.reduce((acc, p) => add(acc, mul(p, 1 / poly.length)), v(0, 0));
+    // Posts in from each corner and along each edge (at most 1.8 m apart), and a fascia round the edge.
+    poly.forEach((a, i) => {
+      const e = poly[(i + 1) % poly.length];
+      const n = Math.max(1, Math.ceil(Math.hypot(e.x - a.x, e.y - a.y) / 1800));
+      for (let k = 0; k < n; k++) {
+        const p = add(a, mul(sub(e, a), k / n));
+        const q = add(p, mul(norm(sub(c, p)), 100));
+        b.box(90, top - board, 90, q.x, 0, q.y, frame);
+      }
+      edgeBox(b, a, e, 0, top, 20, shade(color, 0.85));
+    });
+  }
+  // Balustrade on decks 1 m or more above the ground, round every edge but the back (the house side).
+  if (top >= 1000)
+    for (let i = 1; i < poly.length; i++) {
+      const a = poly[i];
+      const e = poly[(i + 1) % poly.length];
+      edgeBox(b, a, e, top + 30, 940, 12, '#bfe3f0', { opacity: 0.3 });
+      edgeBox(b, a, e, top + 960, 40, 60, frame);
+    }
+}
+
+/** Patio with a reshaped outline: paving on the ground, or raised on fill with retaining sides. */
+function patioShaped(b: Builder, it: Item) {
+  const { height: h, color } = it;
+  const o = outdoorOpts(it);
+  const poly = localCorners(it);
+  const pave = h <= PAVE * 2.5 ? Math.max(10, h) : PAVE;
+  if (h > pave) prism(b, poly, 0, h - pave, o.edgeColor, { rough: 0.92 });
+  prism(b, poly, h - pave, pave, color, { rough: 0.95 });
+  outlineLines(b, poly, 'x', 400, h, shade(color, 0.7));
+  outlineLines(b, poly, 'y', 400, h, shade(color, 0.7));
+}
+
 /** Sloping roof sheet from (zBack, yBack) to (zFront, yFront), across the full width. */
 function sheet(g: THREE.Object3D, m: MatFn, color: string, w: number, zBack: number, yBack: number, zFront: number, yFront: number) {
   const run = zFront - zBack;
@@ -1245,6 +1328,12 @@ function sheet(g: THREE.Object3D, m: MatFn, color: string, w: number, zBack: num
 function verandaSlab(b: Builder, it: Item, top: number, ground: number) {
   const { width: w, depth: d } = it;
   const slab = 100;
+  if (it.corners) {
+    const poly = localCorners(it);
+    prism(b, poly, top - slab, slab, '#c9c5bd', { rough: 0.95 });
+    if (top - slab - ground > 5) prism(b, poly, ground, top - slab, outdoorOpts({ type: 'patio', options: it.options }).edgeColor, { rough: 0.92 });
+    return;
+  }
   b.box(w, slab, d, 0, top - slab, 0, '#c9c5bd', { rough: 0.95 });
   const fillTop = top - slab;
   if (fillTop - ground > 5) {

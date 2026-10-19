@@ -1,8 +1,9 @@
-import { add, clampOpeningOffset, dot, effectiveOpenings, sidelights, mul, polygonArea, polygonCentroid, rad, rot, sub, v, wallExtensions, wallFrame, wallSpans } from '../geometry';
+import { add, pointInPolygon, clampOpeningOffset, dot, effectiveOpenings, sidelights, mul, polygonArea, polygonCentroid, rad, rot, sub, v, wallExtensions, wallFrame, wallSpans } from '../geometry';
 import { exteriorSides } from '../facade';
 import type { Design, Item, Vec, Wall } from '../types';
 import { floorLevelOf, itemBase } from '../levels';
 import { verandaFloor } from '../outdoor';
+import { localCorners } from '../shape';
 
 /**
  * First-person walk-through physics: what you bump into, what you can stand on, and where you start.
@@ -32,6 +33,8 @@ interface Surface {
   rot: number;
   hw: number;
   hd: number;
+  /** Reshaped outline (item-local), if not the whole rectangle. */
+  poly?: Vec[];
   height: (local: Vec) => number;
 }
 
@@ -94,7 +97,7 @@ export function walkWorld(d: Design): WalkWorld {
 }
 
 function surfaceOf(it: Item, at: number): Surface | null {
-  const base = { c: v(it.x, it.y), rot: rad(it.rotation), hw: it.width / 2, hd: it.depth / 2 };
+  const base = { c: v(it.x, it.y), rot: rad(it.rotation), hw: it.width / 2, hd: it.depth / 2, ...(it.corners ? { poly: localCorners(it) } : {}) };
   switch (it.type) {
     case 'deck':
       return { ...base, height: () => at + Math.max(22, it.height) };
@@ -118,7 +121,7 @@ export function floorAt(world: WalkWorld, p: Vec): number {
   let h = world.ground;
   for (const s of world.surfaces) {
     const l = rot(sub(p, s.c), -s.rot);
-    if (Math.abs(l.x) <= s.hw && Math.abs(l.y) <= s.hd) h = Math.max(h, s.height(l));
+    if (Math.abs(l.x) <= s.hw && Math.abs(l.y) <= s.hd && (!s.poly || pointInPolygon(l, s.poly))) h = Math.max(h, s.height(l));
   }
   return h;
 }

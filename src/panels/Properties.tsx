@@ -20,6 +20,7 @@ import { floorLevelOf } from '../levels';
 import { outdoorOpts } from '../outdoor';
 import { GroundLevel, PatioOptions, StepOptions, VerandaLevel } from './OutdoorProps';
 import { changeUnit, customStyle, fillGap, UNIT_MAP, unitsFor } from '../cabinetry';
+import { isShapeable, resizeShape, squareUp } from '../shape';
 import { KABOODLE_PRODUCTS } from '../kaboodle';
 import { DOOR_STOP_SIZE, DOOR_STOPS, doorStopProduct, doorStopUrl } from '../doorStops';
 import { ABI_HANDLE_BY_SLUG, ABI_HANDLES, abiHandleName, abiHandleUrl } from '../doorHandles';
@@ -382,8 +383,9 @@ function ItemProps({ it }: { it: Item }) {
   return (
     <Section title={def?.name ?? 'Item'}>
       <TextField label="Label" value={it.name} onChange={(v) => set({ name: v })} />
-      <NumField label="Width" value={it.width} min={10} onChange={(v) => set({ width: v })} />
-      <NumField label="Depth" value={it.depth} min={5} onChange={(v) => set({ depth: v })} />
+      <NumField label="Width" value={it.width} min={10} onChange={(v) => upd('items', it.id, resizeShape(it, v, it.depth))} />
+      <NumField label="Depth" value={it.depth} min={5} onChange={(v) => upd('items', it.id, resizeShape(it, it.width, v))} />
+      {isShapeable(it) && <ShapeNote it={it} />}
       <NumField label="Height" value={it.height} min={5} onChange={(v) => set({ height: v })} />
       <NumField label="Off floor" value={it.elevation} min={0} onChange={(v) => set({ elevation: v })} hint="Height of the bottom of the item above the floor" />
       <NumField label="X" value={it.x} onChange={(v) => set({ x: v })} />
@@ -802,6 +804,20 @@ function KaboodleOptions({ it }: { it: Item }) {
   );
 }
 
+/** Decks, patios and open verandas: reshaped by dragging their corners in the plan. */
+function ShapeNote({ it }: { it: Item }) {
+  return (
+    <p className="note">
+      {it.corners ? 'Reshaped: drag its corners in the plan to adjust. ' : 'Drag any corner in the plan to reshape it (angled or irregular sides). '}
+      {it.corners && (
+        <a href="#" onClick={(e) => (e.preventDefault(), store.update((d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? squareUp(x) : x)) })))}>
+          Square it up
+        </a>
+      )}
+    </p>
+  );
+}
+
 /** A custom cabinet: what kind of unit it is, its doors and drawers, and stretching it to fill its gap. */
 function CabinetOptions({ it }: { it: Item }) {
   const design = useStore((s) => s.design);
@@ -1042,7 +1058,8 @@ function VerandaRoof({ it }: { it: Item }) {
     const options = { ...(it.options ?? {}) };
     if (m === 'none') options.roof = 'none';
     else delete options.roof;
-    upd('items', it.id, { underRoof: m === 'main', options });
+    // Roofed verandas are rectangles (their framing follows the sides), so a reshaped one is squared up.
+    upd('items', it.id, { underRoof: m === 'main', options, ...(m !== 'none' ? { corners: undefined } : {}) });
   };
   return (
     <>

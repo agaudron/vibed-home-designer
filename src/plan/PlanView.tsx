@@ -57,6 +57,7 @@ import type { SnapResult } from './snap';
 import { itemOutline, itemSymbol } from './symbols';
 import { ElectricalLayer } from './electrical';
 import { OutsideDims, outsideDimensions } from './outsideDims';
+import { isShapeable, localCorners, moveCorner, worldCorners } from '../shape';
 import { ELEC_MAP, elecPlacement, linkRefFor, litLights, newElecPoint, productOf } from '../electrical';
 import { flickSwitch, startLinking, toggleLink } from '../elecActions';
 import { useMobile, useTouch } from '../mobile';
@@ -73,6 +74,7 @@ type Drag =
   | { kind: 'item-rotate'; id: string }
   | { kind: 'elec'; id: string; off: Vec }
   | { kind: 'item-resize'; id: string; orig: Item }
+  | { kind: 'item-corner'; id: string; index: number }
   | { kind: 'wall'; id: string; start: Vec; orig: Design; pts: Vec[] }
   | { kind: 'wall-end'; id: string; which: 'start' | 'end'; orig: Design; exclude: Set<string> }
   | { kind: 'opening'; id: string }
@@ -584,6 +586,7 @@ export default function PlanView() {
         beginDrag(e, { kind: 'wall-end', id, which: h === 'wall-start' ? 'start' : 'end', orig: d, exclude });
       } else if (h === 'item-rotate') beginDrag(e, { kind: 'item-rotate', id });
       else if (h === 'item-resize') beginDrag(e, { kind: 'item-resize', id, orig: d.items.find((i) => i.id === id)! });
+      else if (h === 'item-corner') beginDrag(e, { kind: 'item-corner', id, index: Number(target.dataset.index) });
       else if (h === 'room-vertex') beginDrag(e, { kind: 'room-vertex', id, index: Number(target.dataset.index) });
       else if (h === 'roof-pull' && roofRes && !('error' in roofRes) && d.roof) {
         const edge = roofRes.outline[Number(target.dataset.index)];
@@ -693,6 +696,15 @@ export default function PlanView() {
         let a = deg(Math.atan2(p.y - it.y, p.x - it.x)) + 90;
         a = free ? Math.round(a) : roundTo(a, 15);
         applyDrag((dd) => ({ ...dd, items: dd.items.map((i) => (i.id === drag.id ? { ...i, rotation: normAngle(a) } : i)) }));
+        break;
+      }
+      case 'item-corner': {
+        // Reshape: this corner follows the pointer, snapping to walls, wall corners, the grid and the other corners.
+        const it = d.items.find((i) => i.id === drag.id);
+        if (!it) break;
+        const others = worldCorners(it).filter((_, i) => i !== drag.index);
+        const sp = snapPoint(d, p, { tol, grid, free, extraPoints: others });
+        applyDrag((dd) => ({ ...dd, items: dd.items.map((i) => (i.id === drag.id ? moveCorner(i, drag.index, sp.p) : i)) }));
         break;
       }
       case 'item-resize': {
@@ -1150,6 +1162,8 @@ export default function PlanView() {
 
   const renderItem = (it: Item, ghost = false) => {
     const sel = isSel('item', it.id);
+    // Reshaped outdoor structures draw their own outline, with the boards / paving clipped to it.
+    const shaped = it.corners ? localCorners(it).map((q) => `${q.x},${q.y}`).join(' ') : null;
     return (
       <g
         key={ghost ? 'ghost-item' : it.id}
@@ -1159,8 +1173,15 @@ export default function PlanView() {
         className={`item${sel ? ' selected' : ''}${ghost ? ' ghost' : ''}${it.elevation > 0 ? ' raised' : ''} t-${it.type}`}
       >
         <title>{`${it.name} — ${it.width} × ${it.depth} × ${it.height} mm`}</title>
-        {itemOutline(it.type, it.width, it.depth, it.options)}
-        <g className="sym">{itemSymbol(it.type, it.width, it.depth, it.options)}</g>
+        {shaped ? <polygon points={shaped} className="item-outline" /> : itemOutline(it.type, it.width, it.depth, it.options)}
+        {shaped && (
+          <clipPath id={`clip-${it.id}`}>
+            <polygon points={shaped} />
+          </clipPath>
+        )}
+        <g className="sym" clipPath={shaped ? `url(#clip-${it.id})` : undefined}>
+          {itemSymbol(it.type, it.width, it.depth, it.options)}
+        </g>
       </g>
     );
   };
@@ -1409,10 +1430,22 @@ export default function PlanView() {
         <circle key="rot" cx={rp.x} cy={rp.y} r={hr} className="handle rotate" data-kind="handle" data-handle="item-rotate" data-id={it.id}>
           <title>Drag to rotate (hold Shift for free rotation)</title>
         </circle>,
-        <rect key="rs" x={cp.x - hr} y={cp.y - hr} width={hr * 2} height={hr * 2} className="handle" data-kind="handle" data-handle="item-resize" data-id={it.id}>
-          <title>Drag to resize</title>
-        </rect>,
       );
+      if (isShapeable(it))
+        // Decks, patios and open verandas: a handle on each corner to reshape the outline.
+        worldCorners(it).forEach((q, i) =>
+          handles.push(
+            <rect key={`cn${i}`} x={q.x - hr} y={q.y - hr} width={hr * 2} height={hr * 2} className="handle corner" data-kind="handle" data-handle="item-corner" data-id={it.id} data-index={i}>
+              <title>Drag this corner to reshape (Shift = no snapping)</title>
+            </rect>,
+          ),
+        );
+      else
+        handles.push(
+          <rect key="rs" x={cp.x - hr} y={cp.y - hr} width={hr * 2} height={hr * 2} className="handle" data-kind="handle" data-handle="item-resize" data-id={it.id}>
+            <title>Drag to resize</title>
+          </rect>,
+        );
       const lp = add(c, rot(v(0, it.depth / 2 + px(14)), r));
       handles.push(
         <text key="lbl" x={lp.x} y={lp.y} fontSize={fs} textAnchor="middle" dominantBaseline="middle" className="sel-label">

@@ -136,6 +136,8 @@ export interface Item {
   underRoof?: boolean;
   /** Configurable items (e.g. Timberline vanities): their chosen options. */
   options?: Record<string, string | number>;
+  /** Reshaped outdoor structures (decks, patios, open verandas): the outline's corners in the item's own frame. */
+  corners?: [number, number][];
 }
 
 /**

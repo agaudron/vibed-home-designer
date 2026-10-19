@@ -382,6 +382,9 @@ export function normaliseDesign(raw: unknown): Design {
       color: typeof i.color === 'string' ? i.color : '#cccccc',
       ...(i.underRoof ? { underRoof: true } : {}),
       ...(i.options && typeof i.options === 'object' ? { options: { ...i.options } } : {}),
+      ...(Array.isArray(i.corners) && i.corners.length === 4 && i.corners.every((c: unknown) => Array.isArray(c) && c.length === 2 && c.every((n) => typeof n === 'number' && isFinite(n)))
+        ? { corners: i.corners.map((c: number[]) => [c[0], c[1]]) }
+        : {}),
     })),
     rooms: (r.rooms ?? []).map((rm: any) => ({
       ...(rm.kitchen && typeof rm.kitchen === 'object' ? { kitchen: { ...rm.kitchen } } : {}),
