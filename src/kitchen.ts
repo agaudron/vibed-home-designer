@@ -4,6 +4,7 @@ import { pointInPolygon, rad } from './geometry';
 import { store } from './store';
 import { KB_LEGS } from './three/builders';
 import type { Design, Item, KitchenStyle, Room } from './types';
+import { customStyle, restyleCustom } from './cabinetry';
 
 /**
  * Kitchen designer: a room's Kaboodle style (door colour, benchtop, handles) and the Kaboodle units in it.
@@ -109,9 +110,14 @@ export function kaboodlePreset(p: KaboodleProduct, s: KitchenStyle): Partial<Ite
   };
 }
 
-/** Kaboodle units standing in this room. */
+/** Kitchen units (Kaboodle and custom) standing in this room. */
 export function kitchenItems(d: Design, r: Room): Item[] {
-  return d.items.filter((it) => it.type === 'kaboodle' && r.points.length >= 3 && pointInPolygon({ x: it.x, y: it.y }, r.points));
+  return d.items.filter((it) => (it.type === 'kaboodle' || it.type === 'cabinet') && r.points.length >= 3 && pointInPolygon({ x: it.x, y: it.y }, r.points));
+}
+
+/** Which cabinetry the designer offers for this kitchen: custom, unless it's already a Kaboodle kitchen. */
+export function kitchenRange(d: Design, r: Room): 'custom' | 'kaboodle' {
+  return r.kitchen?.range ?? (kitchenItems(d, r).some((i) => i.type === 'kaboodle') ? 'kaboodle' : 'custom');
 }
 
 /** Restyle a unit (keeping which product it is). Under-bench units change height with the benchtop thickness. */
@@ -136,7 +142,7 @@ export function setKitchenStyle(roomId: string, patch: Partial<KitchenStyle>) {
     return {
       ...d,
       rooms: d.rooms.map((x) => (x.id === roomId ? { ...x, kitchen: s } : x)),
-      items: d.items.map((i) => (inRoom.has(i.id) ? restyle(i, s) : i)),
+      items: d.items.map((i) => (!inRoom.has(i.id) ? i : i.type === 'cabinet' ? restyleCustom(i, customStyle(s)) : restyle(i, s))),
     };
   });
 }

@@ -16,6 +16,10 @@ import { exteriorSides, FINISHES } from '../facade';
 import { generateRoof } from '../roof';
 import FacadeEditor from './FacadeEditor';
 import ElectricProps from './ElectricProps';
+import { floorLevelOf } from '../levels';
+import { outdoorOpts } from '../outdoor';
+import { GroundLevel, PatioOptions, StepOptions } from './OutdoorProps';
+import { changeUnit, customStyle, fillGap, UNIT_MAP, UNIT_TYPES } from '../cabinetry';
 import { KABOODLE_PRODUCTS } from '../kaboodle';
 import { DOOR_STOP_SIZE, DOOR_STOPS, doorStopProduct, doorStopUrl } from '../doorStops';
 import { ABI_HANDLE_BY_SLUG, ABI_HANDLES, abiHandleName, abiHandleUrl } from '../doorHandles';
@@ -398,9 +402,24 @@ function ItemProps({ it }: { it: Item }) {
         )}
       </div>
       <ColorField label="Colour" value={it.color} onChange={(c) => set({ color: c })} />
-      {(it.type === 'veranda' || it.type === 'porch') && <UnderRoof it={it} />}
+      {it.type === 'deck' && <GroundLevel it={it} presets={[0, -150, -300, -600, -1000]} />}
+      {it.type === 'patio' && (
+        <>
+          <GroundLevel it={it} presets={[0, -50, -150, -300]} />
+          <PatioOptions it={it} />
+        </>
+      )}
+      {it.type === 'step' && (
+        <>
+          <GroundLevel it={it} presets={[1, 2, 3, 4, 5, 6].map((k) => -k * outdoorOpts(it).rise)} />
+          <StepOptions it={it} />
+        </>
+      )}
+      {it.type === 'veranda' && <VerandaRoof it={it} />}
+      {it.type === 'porch' && <UnderRoof it={it} />}
       {it.type === 'column' && <ColumnSupport it={it} />}
       {it.type === 'kaboodle' && <KaboodleOptions it={it} />}
+      {it.type === 'cabinet' && <CabinetOptions it={it} />}
       {it.type === 'vanity_tl' && <TimberlineOptions it={it} />}
       {it.type.startsWith('abi_') && <AbiOptions it={it} />}
       <ProductLinkRow it={it} />
@@ -770,6 +789,59 @@ function KaboodleOptions({ it }: { it: Item }) {
   );
 }
 
+/** A custom cabinet: what kind of unit it is, its doors and drawers, and stretching it to fill its gap. */
+function CabinetOptions({ it }: { it: Item }) {
+  const design = useStore((s) => s.design);
+  const kitchenOpen = useStore((s) => s.kitchen);
+  const o = it.options ?? {};
+  const cls = String(o.cls ?? 'base');
+  const room = design.rooms.find((r) => r.points.length >= 3 && pointInPolygon({ x: it.x, y: it.y }, r.points));
+  const style = customStyle(room?.kitchen);
+  const fronts = UNIT_MAP[cls] && !['panel', 'benchtop', 'dishwasher', 'cooktop', 'oven_tower'].includes(cls);
+  const count = (key: 'doors' | 'drawers', max: number) => (
+    <Field label={key === 'doors' ? 'Doors' : 'Drawers'}>
+      <span className="presets inline">
+        {Array.from({ length: max + 1 }, (_, n) => (
+          <button key={n} className={Number(o[key] ?? 0) === n ? 'on' : ''} onClick={() => upd('items', it.id, { options: { ...o, [key]: n } })}>
+            {n}
+          </button>
+        ))}
+      </span>
+    </Field>
+  );
+  const fill = () => {
+    const next = fillGap(design, it);
+    if (!next) store.flash('No gap beside it to fill (within 1.2 m)');
+    else {
+      upd('items', it.id, next);
+      store.flash(`Widened to ${next.width} mm`);
+    }
+  };
+  return (
+    <>
+      <div className="sub-head">Custom cabinet</div>
+      <Field label="Unit">
+        <select value={cls} onChange={(e) => store.update((d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? changeUnit(x, e.target.value, style) : x)) }))}>
+          {UNIT_TYPES.map((u) => (
+            <option key={u.cls} value={u.cls}>
+              {u.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {fronts && count('doors', 4)}
+      {fronts && cls !== 'wall' && cls !== 'rangehood' && cls !== 'fridge' && count('drawers', 4)}
+      <p className="note">{[o.door && `Doors: ${o.door}`, isUnderBench(cls) && o.benchName && `benchtop: ${o.benchName}`, o.handleName && `handles: ${o.handleName}`].filter(Boolean).join(' · ')}</p>
+      <div className="actions">
+        <button onClick={fill} title="Widen it to close the gap to the next wall or unit on each side">
+          Fill gap
+        </button>
+        {room && isKitchenRoom(room) && kitchenOpen !== room.id && <button onClick={() => openKitchenDesigner(room.id)}>Open kitchen designer</button>}
+      </div>
+    </>
+  );
+}
+
 /** Columns standing outside the house hold up the main roof, which is pulled out over them. */
 function ColumnSupport({ it }: { it: Item }) {
   const design = useStore((s) => s.design);
@@ -821,6 +893,15 @@ function GlobalSettings({ design }: { design: Design }) {
       <NumField label="Door height" value={s.doorHeight} min={1500} max={3000} onChange={(v) => setGlobalDoorHeight(v)} hint="Hinged, double and cavity doors" />
       <Presets values={[2040, 2100, 2340]} current={s.doorHeight} onPick={(v) => setGlobalDoorHeight(v)} />
       {exceptions(customDoors, customDoors === 1 ? 'door is' : 'doors are', () => setGlobalDoorHeight(s.doorHeight, true))}
+      <NumField
+        label="Floor above ground"
+        value={floorLevelOf(design)}
+        min={0}
+        max={5000}
+        onChange={(v) => setS({ floorLevel: v })}
+        hint="How high the house floor sits above the ground around it (stumps, a raised slab or a sloping site). Decks, patios and outside stairs stand on the ground."
+      />
+      <Presets values={[0, 150, 300, 600, 1000]} current={floorLevelOf(design)} onPick={(v) => setS({ floorLevel: v })} />
       <ColorField label="Wall colour" value={s.wallColor} onChange={(c) => setGlobalWallColor(c)} paint />
       {exceptions(customColor, customColor === 1 ? 'wall is' : 'walls are', () => setGlobalWallColor(s.wallColor, true))}
       <ColorField label="Ceiling colour" value={s.ceilingColor} onChange={(c) => setS({ ceilingColor: c })} paint />
@@ -938,11 +1019,44 @@ function WallFacade({ w, design }: { w: Wall; design: Design }) {
 }
 
 /** Porch / veranda: extend the main roof over it (its outer edge then counts as an outside wall). */
-function UnderRoof({ it }: { it: Item }) {
+/** Veranda roof: its own skillion roof, the main roof extended over it, or no roof (an open veranda). */
+function VerandaRoof({ it }: { it: Item }) {
+  const mode = it.options?.roof === 'none' ? 'none' : it.underRoof ? 'main' : 'own';
+  const set = (m: 'own' | 'main' | 'none') => {
+    const options = { ...(it.options ?? {}) };
+    if (m === 'none') options.roof = 'none';
+    else delete options.roof;
+    upd('items', it.id, { underRoof: m === 'main', options });
+  };
+  return (
+    <>
+      <Field label="Roof">
+        <span className="presets inline">
+          {(
+            [
+              ['own', 'Own roof'],
+              ['main', 'Main roof'],
+              ['none', 'No roof'],
+            ] as const
+          ).map(([m, label]) => (
+            <button key={m} className={mode === m ? 'on' : ''} onClick={() => set(m)}>
+              {label}
+            </button>
+          ))}
+        </span>
+      </Field>
+      {mode === 'none' && <p className="note">An open veranda: just the floor, no posts or roof. Height doesn’t apply.</p>}
+      {mode === 'main' && <UnderRoof it={it} hideToggle />}
+      {mode === 'own' && <p className="note">Its own roof, falling away from the house; Height is the roof height at the house.</p>}
+    </>
+  );
+}
+
+function UnderRoof({ it, hideToggle = false }: { it: Item; hideToggle?: boolean }) {
   const hasRoof = useStore((s) => !!s.design.roof);
   return (
     <div className="toggles">
-      <Toggle label="Extend the main roof over this" value={!!it.underRoof} onChange={(v) => upd('items', it.id, { underRoof: v })} />
+      {!hideToggle && <Toggle label="Extend the main roof over this" value={!!it.underRoof} onChange={(v) => upd('items', it.id, { underRoof: v })} />}
       {it.underRoof && !hasRoof && (
         <p className="note warn">
           There’s no main roof yet.{' '}

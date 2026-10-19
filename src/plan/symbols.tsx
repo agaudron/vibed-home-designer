@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { cornerLegs, outdoorOpts } from '../outdoor';
 
 /**
  * Plan symbols drawn in item-local millimetres, centred on the item.
@@ -100,7 +101,8 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
     case 'mirror':
     case 'towel_rail':
       return <rect x={-hw} y={-hd} width={w} height={d} className="sym-dashed" />;
-    case 'kaboodle': {
+    case 'kaboodle':
+    case 'cabinet': {
       // Draw it like the matching generic kitchen unit.
       const cls = String(options?.cls ?? 'base');
       const as: Record<string, string> = {
@@ -408,6 +410,12 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
       for (let y = -hd + 90; y < hd; y += 90) lines.push(L(-hw, y, hw, y, y));
       return <g className="sym-light">{lines}</g>;
     }
+    case 'step': {
+      // The nosing along the open edge(s); corner steps are an L (see itemOutline).
+      const o = outdoorOpts({ type, options });
+      if (o.shape === 'corner') return <path d={`M${-o.sx * hw} ${hd - 40} L${o.sx * (hw - 40)} ${hd - 40} L${o.sx * (hw - 40)} ${-hd}`} className="sym-dashed" />;
+      return L(-hw, hd - 40, hw, hd - 40, 'nose');
+    }
     case 'patio': {
       const lines = [];
       for (let x = -hw + 400; x < hw; x += 400) lines.push(L(x, -hd, x, hd, `x${x}`));
@@ -415,6 +423,13 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
       return <g className="sym-light">{lines}</g>;
     }
     case 'veranda':
+      // No roof: just the open floor (slab joints), no posts or roof fall arrow.
+      if (options?.roof === 'none') {
+        const lines = [];
+        for (let x = -hw + 600; x < hw; x += 600) lines.push(L(x, -hd, x, hd, `x${x}`));
+        return <g className="sym-light">{lines}</g>;
+      }
+    // falls through
     case 'porch':
     case 'pergola': {
       const span = type === 'pergola' ? 3600 : type === 'veranda' ? 3600 : w;
@@ -439,9 +454,24 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
 }
 
 /** Items whose outline is not a plain rectangle. */
-export function itemOutline(type: string, w: number, d: number): ReactNode {
+export function itemOutline(type: string, w: number, d: number, options?: Record<string, string | number>): ReactNode {
   const hw = w / 2;
   const hd = d / 2;
+  if (type === 'step' && outdoorOpts({ type, options }).shape === 'corner') {
+    const legs = cornerLegs({ type, options, width: w, depth: d });
+    const [, [sx0, , sx1]] = legs;
+    const sx = outdoorOpts({ type, options }).sx;
+    const ix = sx > 0 ? sx0 : sx1;
+    const fy0 = legs[0][1];
+    // The L: front leg plus the side leg; the cut-out corner is left open (the higher level sits there).
+    const pts = sx > 0 ? [[-hw, fy0], [ix, fy0], [ix, -hd], [hw, -hd], [hw, hd], [-hw, hd]] : [[hw, fy0], [ix, fy0], [ix, -hd], [-hw, -hd], [-hw, hd], [hw, hd]];
+    return (
+      <>
+        <rect x={-hw} y={-hd} width={w} height={d} className="item-outline item-ghost" />
+        <polygon points={pts.map((p) => p.join(',')).join(' ')} className="item-outline" />
+      </>
+    );
+  }
   if (type === 'round_table' || type === 'plant' || type === 'floor_lamp' || type === 'bar_stool')
     return <ellipse cx={0} cy={0} rx={hw} ry={hd} className="item-outline" />;
   if (type === 'sofa_corner') return <rect x={-hw} y={-hd} width={w} height={d} className="item-outline item-ghost" />;

@@ -196,6 +196,8 @@ export const ITEMS: ItemDef[] = [
   { type: 'porch', name: 'Porch', category: 'Outdoor', width: 2400, depth: 1800, height: 2700, color: '#4b4c46' },
   { type: 'pergola', name: 'Pergola', category: 'Outdoor', width: 4000, depth: 3600, height: 2600, color: '#8a6a4f' },
   { type: 'patio', name: 'Patio / paving', category: 'Outdoor', width: 5000, depth: 3500, height: 80, color: '#bdb7ab' },
+  // A single step (straight, or a corner step wrapping round a corner): add more one by one, one riser down each.
+  { type: 'step', name: 'Step', category: 'Outdoor', width: 1500, depth: 300, height: 170, color: '#bdb7ab' },
 
   // Structure & other
   { type: 'stairs', name: 'Staircase', category: 'Structure', width: 1000, depth: 3600, height: 2700, color: WOOD },
@@ -204,6 +206,7 @@ export const ITEMS: ItemDef[] = [
   { type: 'box', name: 'Custom block', category: 'Structure', width: 1000, depth: 600, height: 900, color: '#c9c3b8' },
   { type: 'car', name: 'Car', category: 'Structure', width: 1850, depth: 4700, height: 1500, color: '#8c2f2f' },
   // Kaboodle units are placed from the kitchen designer (which product it is lives in the item's options).
+  { type: 'cabinet', name: 'Custom cabinet', category: KITCHEN_DESIGNER, width: 600, depth: 600, height: 900, color: '#f3f2ee' },
   { type: 'kaboodle', name: 'Kaboodle cabinet', category: KITCHEN_DESIGNER, width: 600, depth: 600, height: 903, color: '#f4f4f2', link: { url: 'https://www.kaboodle.com.au/', label: 'Kaboodle' } },
 ];
 

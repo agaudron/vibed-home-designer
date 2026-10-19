@@ -20,6 +20,7 @@ import type { Design, Facade, FloorFinish, FloorSize, Item, Opening, Selection, 
 import { buildItem, buildOpening, Builder } from './builders';
 import { buildElectrical } from './electrical3d';
 import { beamOf, cctColor, cctOf, lightSource, litLights, productOf } from '../electrical';
+import { floorLevelOf, itemBase } from '../levels';
 import type { ElecPoint } from '../types';
 import type { ItemContext, MatFn, MatOpts } from './builders';
 import { buildMeasures, measuresForItem } from './measure3d';
@@ -510,6 +511,9 @@ export default function Scene3D() {
       const old = house;
       house = buildHouse(design, selection, cut, roofOn, itemCache, walkOn, electric, demo ? litLights(design, new Set(demo)) : null);
       if (night !== !!demo) applyDay();
+      // Raised house: the ground is below the house floor.
+      ground.position.y = -floorLevelOf(design) - 2;
+      gridHelper.position.y = -floorLevelOf(design) - 1;
       scene.remove(old);
       disposeTree(old); // reused furniture has already been moved into the new group
       scene.add(house);
@@ -1977,7 +1981,7 @@ function floorTextureAt(kind: FloorFinish, deg: number, size: Required<FloorSize
   return t;
 }
 
-type ItemCache = Map<string, { item: Item; selected: boolean; plate: number | undefined; sky: string; obj: THREE.Object3D }>;
+type ItemCache = Map<string, { item: Item; selected: boolean; plate: number | undefined; sky: string; base: number; obj: THREE.Object3D }>;
 
 // ---------- Skylights ----------
 type CRect = { x0: number; y0: number; x1: number; y1: number };
@@ -2162,6 +2166,16 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
     const { e0, e1 } = wallExtensions(w, d.walls);
     const { solid, ops } = wallSpans(w, allOpenings, e0 > 0 ? e0 - 1 : 0, e1 > 0 ? e1 - 1 : 0);
     for (const [a, z] of solid) wallBox(g, z - a, H, w.thickness, (a + z) / 2, 0, inner, faces);
+    // Raised house: the outside walls carry on down to the ground (brick and render as the wall, cladding over
+    // a dark battened subfloor), under doorways too.
+    const L = floorLevelOf(d);
+    if (L > 0 && facMat) {
+      const masonry = ['brick', 'painted_brick', 'render', 'paint', 'stone', 'block'].includes(fac.finish);
+      const base = masonry ? facMat : plain('#4f4d48', { rough: 0.95 });
+      const a0 = -(e0 > 0 ? e0 - 1 : 0);
+      const a1 = f.length + (e1 > 0 ? e1 - 1 : 0);
+      wallBox(g, a1 - a0, L, w.thickness, (a0 + a1) / 2, -L, inner, { pos: out?.pos ? base : null, neg: out?.neg ? base : null, tile: faces.tile });
+    }
     for (const { o, a, b: z } of ops) {
       const cx = (a + z) / 2;
       const top = Math.min(o.sill + o.height, w.height);
@@ -2255,15 +2269,16 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
     // Skylights depend on the roof and ceiling too.
     const sky = it.type === 'skylight' || it.type === 'sun_tunnel' || it.type === 'solar_array' ? skylightContext(it, roofFaces, ceilingH, cutaway, Math.max(20, d.roof?.fascia ?? 200)) : undefined;
     const skyKey = sky ? JSON.stringify(sky) : '';
-    if (cached && cached.item === it && cached.selected === selected && cached.plate === itemPlate && cached.sky === skyKey) {
+    const base = itemBase(d, it); // decks, patios and outside stairs stand on the ground
+    if (cached && cached.item === it && cached.selected === selected && cached.plate === itemPlate && cached.sky === skyKey && cached.base === base) {
       house.add(cached.obj);
       continue;
     }
     const g = buildItem(it, selected ? highlight : plain, { plate: itemPlate, sky });
-    g.position.set(it.x, it.elevation, it.y);
+    g.position.set(it.x, it.elevation + base, it.y);
     g.rotation.y = -THREE.MathUtils.degToRad(it.rotation);
     g.userData.sel = { kind: 'item', id: it.id };
-    cache.set(it.id, { item: it, selected, plate: itemPlate, sky: skyKey, obj: g });
+    cache.set(it.id, { item: it, selected, plate: itemPlate, sky: skyKey, base, obj: g });
     house.add(g);
   }
   for (const id of [...cache.keys()]) if (!seen.has(id)) cache.delete(id);

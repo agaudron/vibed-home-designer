@@ -157,9 +157,29 @@ export interface DoorStop {
 }
 
 export interface KitchenStyle {
+  /** Kaboodle door, benchtop and handle names (Kaboodle cabinetry). */
   door: string;
   benchtop: string;
   handle: string;
+  /** Which cabinetry the kitchen designer offers: custom (made to measure) or Kaboodle; unset = custom unless it has Kaboodle units. */
+  range?: 'custom' | 'kaboodle';
+  /** Custom cabinetry finishes and heights (see cabinetry.ts); unset fields use the defaults. */
+  custom?: Partial<CustomKitchenStyle>;
+}
+
+/** Custom cabinetry: door profile and colour, benchtop, handles, and the kick / bench / overhead heights (mm). */
+export interface CustomKitchenStyle {
+  profile: string;
+  doorColor: string;
+  bench: string;
+  benchColor: string;
+  benchT: number;
+  handle: string;
+  handleFinish: string;
+  handleLen: number;
+  kick: number;
+  benchHeight: number;
+  overheadTop: number;
 }
 
 /** Flooring sizes (mm): board / plank width, or tile width × length and grout joint width. */
@@ -270,6 +290,8 @@ export interface Settings {
   construction?: Construction | null;
   /** The outside wall at the front of the house; the walk-through starts out in front of it. */
   frontWallId?: string | null;
+  /** Height of the house floor above the ground around it (mm, e.g. a house on stumps); unset = 0. */
+  floorLevel?: number;
   /** House style for switch and power point plates (Clipsal Iconic): range and colour ids. */
   electrical?: { range: string; finish: string };
 }

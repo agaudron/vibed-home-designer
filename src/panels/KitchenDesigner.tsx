@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KABOODLE_BENCHTOPS, KABOODLE_DOORS, KABOODLE_HANDLES, KABOODLE_HOME, KABOODLE_PRODUCTS } from '../kaboodle';
 import type { KaboodleClass, KaboodleDoor, KaboodleProduct } from '../kaboodle';
-import { CLASS_NAMES, closeKitchenDesigner, kaboodlePreset, kitchenItems, kitchenStyle, setKitchenStyle, styleParts } from '../kitchen';
+import { CLASS_NAMES, closeKitchenDesigner, kaboodlePreset, kitchenItems, kitchenRange, kitchenStyle, setKitchenStyle, styleParts } from '../kitchen';
+import CustomCabinetry from './CustomCabinetry';
 import { store, useStore } from '../store';
 import { FRIDGES } from '../catalog';
 
@@ -21,7 +22,7 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
   const [open, setOpen] = useState<Record<string, boolean>>({ base: true });
   const style = kitchenStyle(room);
   const parts = styleParts(style);
-  const units = useMemo(() => (room ? kitchenItems(design, room) : []), [design, room]);
+  const units = useMemo(() => (room ? kitchenItems(design, room).filter((i) => i.type === 'kaboodle') : []), [design, room]);
 
   const groups = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -57,6 +58,7 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
     if (!room) closeKitchenDesigner();
   }, [room]);
   if (!room) return null;
+  const range = kitchenRange(design, room);
   // Doors come in profiles (Modern, Heritage…), each in tiers of colours (Everyday, Premium…).
   const profile = parts.door ? profileOf(parts.door) : 'Modern';
   const profiles = [...new Set(KABOODLE_DOORS.map(profileOf))];
@@ -76,13 +78,29 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
       <div className="kd-head">
         <div>
           <strong>Kitchen designer</strong>
-          <span className="kd-room">{room.name} · Kaboodle</span>
+          <span className="kd-room">
+            {room.name} · {range === 'custom' ? 'Custom cabinetry' : 'Kaboodle'}
+          </span>
         </div>
         <button className="primary" onClick={closeKitchenDesigner} title="Back to the full catalogue">
           Done
         </button>
       </div>
       <div className="cat-scroll">
+        <div className="kd-section">
+          <div className="presets kd-profiles kd-range-pick">
+            <button className={range === 'custom' ? 'on' : ''} onClick={() => setKitchenStyle(room.id, { range: 'custom' })} title="Made-to-measure cabinets in any size and finish">
+              Custom cabinetry
+            </button>
+            <button className={range === 'kaboodle' ? 'on' : ''} onClick={() => setKitchenStyle(room.id, { range: 'kaboodle' })} title="Kaboodle flat-pack range (Bunnings)">
+              Kaboodle
+            </button>
+          </div>
+        </div>
+        {range === 'custom' ? (
+          <CustomCabinetry room={room} />
+        ) : (
+          <>
         <div className="kd-section">
           <div className="kd-label">
             Doors <span>{parts.door?.name}</span>
@@ -234,6 +252,8 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
             </>
           )}
         </div>
+          </>
+        )}
       </div>
     </aside>
   );

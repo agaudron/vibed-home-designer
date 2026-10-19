@@ -1052,7 +1052,7 @@ export default function PlanView() {
         className={`item${sel ? ' selected' : ''}${ghost ? ' ghost' : ''}${it.elevation > 0 ? ' raised' : ''} t-${it.type}`}
       >
         <title>{`${it.name} — ${it.width} × ${it.depth} × ${it.height} mm`}</title>
-        {itemOutline(it.type, it.width, it.depth)}
+        {itemOutline(it.type, it.width, it.depth, it.options)}
         <g className="sym">{itemSymbol(it.type, it.width, it.depth, it.options)}</g>
       </g>
     );

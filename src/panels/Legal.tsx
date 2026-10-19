@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
  */
 
 export type LegalTab = 'terms' | 'privacy' | 'disclosure';
-const UPDATED = '15 October 2026';
+const UPDATED = '19 October 2026';
 /** Bump when the terms change, so the first-visit notice shows again. */
 const VERSION = '2026-10-15';
 const ACCEPT_KEY = 'home-designer:termsAccepted';
@@ -259,6 +259,7 @@ function Privacy() {
 const BRANDS: { name: string; url: string; what: string }[] = [
   { name: 'ABI Interiors', url: 'https://www.abiinteriors.com.au/', what: 'Bathroom, kitchen and laundry fixtures and tapware' },
   { name: 'Bunnings (Pinnacle)', url: 'https://www.bunnings.com.au/', what: 'Garage shelving; Kaboodle product details' },
+  { name: 'Clipsal (Schneider Electric)', url: 'https://www.clipsal.com/', what: 'Iconic switches, dimmers, fan controllers and power points; LED downlights (electrical plan)' },
   { name: 'COLORBOND® steel (BlueScope)', url: 'https://colorbond.com/', what: 'Roof and garage door colours' },
   { name: 'Corinthian Doors', url: 'https://www.corinthian.com.au/', what: 'Internal and entrance door designs' },
   { name: 'Dulux', url: 'https://www.dulux.com.au/', what: 'Paint colours' },
@@ -322,7 +323,8 @@ function Disclosure() {
       <p>
         Product names, sizes and colours come from each brand’s public website at the time they were added, and may since have
         changed. 3D models are approximations, and screen colours are approximate. Check with the brand or retailer before you buy.
-        All trademarks belong to their owners.
+        Some Clipsal order codes couldn’t be confirmed and are marked “check code” in the app. Electrical work must be done by a
+        licensed electrician. All trademarks belong to their owners.
       </p>
 
       <h3>Music</h3>

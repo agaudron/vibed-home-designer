@@ -1,6 +1,7 @@
 import { add, clampOpeningOffset, dot, effectiveOpenings, sidelights, mul, polygonArea, polygonCentroid, rad, rot, sub, v, wallExtensions, wallFrame, wallSpans } from '../geometry';
 import { exteriorSides } from '../facade';
 import type { Design, Item, Vec, Wall } from '../types';
+import { floorLevelOf, itemBase } from '../levels';
 
 /**
  * First-person walk-through physics: what you bump into, what you can stand on, and where you start.
@@ -16,7 +17,7 @@ const PASSABLE = new Set(['door', 'double_door', 'sliding_door', 'stacker_door',
 /** Outdoor structures you walk on/under rather than bump into. */
 /** Small wall / bench fittings you'd brush past rather than walk into. */
 const SMALL_FITTINGS = new Set(['solar_array', 'skylight', 'sun_tunnel', 'abi_tap', 'abi_accessory', 'abi_shower', 'abi_mirror', 'abi_towel_rail', 'abi_bath_filler']);
-const WALK_ON = new Set(['deck', 'patio', 'veranda', 'porch', 'pergola', 'rug', 'stairs']);
+const WALK_ON = new Set(['deck', 'patio', 'veranda', 'porch', 'pergola', 'rug', 'stairs', 'step']);
 
 export interface Box {
   c: Vec; // centre
@@ -36,6 +37,8 @@ interface Surface {
 export interface WalkWorld {
   boxes: Box[];
   surfaces: Surface[];
+  /** Height of the ground outside (0, or below the house floor for a raised house). */
+  ground: number;
 }
 
 const worldCache = new WeakMap<Design, WalkWorld>();
@@ -68,9 +71,14 @@ export function walkWorld(d: Design): WalkWorld {
     }
   }
   const surfaces: Surface[] = [];
+  // Raised house: the floor inside the outside walls is at 0, the ground outside lower.
+  const ground = -floorLevelOf(d);
+  if (ground < 0)
+    for (const r of exteriorSides(d.walls).floor)
+      surfaces.push({ c: v((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2), rot: 0, hw: (r.x1 - r.x0) / 2, hd: (r.y1 - r.y0) / 2, height: () => 0 });
   for (const it of d.items) {
     if (WALK_ON.has(it.type)) {
-      const s = surfaceOf(it);
+      const s = surfaceOf(it, itemBase(d, it));
       if (s) surfaces.push(s);
       continue;
     }
@@ -79,33 +87,34 @@ export function walkWorld(d: Design): WalkWorld {
     const r = rad(it.rotation);
     boxes.push({ c: v(it.x, it.y), u: v(Math.cos(r), Math.sin(r)), hl: it.width / 2, hw: it.depth / 2 });
   }
-  const world = { boxes, surfaces };
+  const world = { boxes, surfaces, ground };
   worldCache.set(d, world);
   return world;
 }
 
-function surfaceOf(it: Item): Surface | null {
+function surfaceOf(it: Item, at: number): Surface | null {
   const base = { c: v(it.x, it.y), rot: rad(it.rotation), hw: it.width / 2, hd: it.depth / 2 };
   switch (it.type) {
     case 'deck':
-      return { ...base, height: () => Math.max(22, it.height) };
+      return { ...base, height: () => at + Math.max(22, it.height) };
     case 'patio':
-      return { ...base, height: () => it.height };
+    case 'step':
+      return { ...base, height: () => at + it.height };
     case 'veranda':
       return { ...base, height: () => 100 };
     case 'porch':
       return { ...base, height: () => 150 };
     case 'stairs':
       // Rises from the front (+depth side) to the back.
-      return { ...base, height: (l) => Math.max(0, Math.min(it.height, (it.height * (it.depth / 2 - l.y)) / it.depth)) };
+      return { ...base, height: (l) => at + Math.max(0, Math.min(it.height, (it.height * (it.depth / 2 - l.y)) / it.depth)) };
     default:
       return null;
   }
 }
 
-/** Height of the floor you'd stand on at p (0 = ground / house floor). */
+/** Height of the floor you'd stand on at p (0 = house floor; the ground outside may be lower). */
 export function floorAt(world: WalkWorld, p: Vec): number {
-  let h = 0;
+  let h = world.ground;
   for (const s of world.surfaces) {
     const l = rot(sub(p, s.c), -s.rot);
     if (Math.abs(l.x) <= s.hw && Math.abs(l.y) <= s.hd) h = Math.max(h, s.height(l));

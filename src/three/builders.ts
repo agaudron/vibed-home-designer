@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { cornerLegs, NOSE, outdoorOpts, PAVE } from '../outdoor';
 import { BANQUETTE_DEFAULTS, DOOR_DESIGNS, FRIDGE_STYLE, SKYLIGHT_DEFAULTS, SOLAR_DEFAULTS, SOLAR_GAP, SOLAR_PANELS, VANITY_DEFAULTS } from '../catalog';
 import type { FridgeStyle } from '../catalog';
 import { DOOR_GAP, DOOR_JAMB, doubleDoorLeaf, dressingSide, sidelights, stackerLayout } from '../geometry';
@@ -105,14 +106,17 @@ export const KB_LEGS = 145;
 type KbHandle = 'bar' | 'd' | 'knob' | 'cup' | 'edge' | 'none';
 
 /**
- * A Kaboodle cabinet, panel or benchtop. What it is and how it's finished come from `it.options` (set by the
- * kitchen designer): cls, doors, drawers, doorStyle, bench (colour), benchT (thickness), handle, handleHex, handleLen.
+ * A Kaboodle or custom cabinet, panel or benchtop. What it is and how it's finished come from `it.options` (set by
+ * the kitchen designer): cls, doors, drawers, doorStyle, bench (colour), benchT (thickness), handle, handleHex,
+ * handleLen, kick (kickboard height).
  * Base units' height includes the legs and benchtop; their depth includes the benchtop's 20 mm overhang.
  */
 function kaboodleUnit(b: Builder, it: Item) {
   const o = it.options ?? {};
   const num = (k: string, dflt: number) => (Number.isFinite(Number(o[k])) && o[k] !== '' ? Number(o[k]) : dflt);
   const cls = String(o.cls ?? 'base');
+  // Kickboard height: Kaboodle's legs, or a custom kitchen's own kick.
+  const LEGS = num('kick', KB_LEGS);
   const { width: w, depth: d, height: h, color } = it;
   const style = String(o.doorStyle ?? 'flat');
   const benchCol = String(o.bench ?? STONE);
@@ -212,44 +216,44 @@ function kaboodleUnit(b: Builder, it: Item) {
     // falls through
     case 'tall': {
       const cd = d - 18;
-      b.box(w - 10, KB_LEGS - 10, 16, 0, 0, -d / 2 + cd - 60, shade(color, 0.85));
-      b.box(w, h - KB_LEGS, cd, 0, KB_LEGS, -d / 2 + cd / 2, color);
+      b.box(w - 10, LEGS - 10, 16, 0, 0, -d / 2 + cd - 60, shade(color, 0.85));
+      b.box(w, h - LEGS, cd, 0, LEGS, -d / 2 + cd / 2, color);
       const z = -d / 2 + cd;
-      const H = h - KB_LEGS;
+      const H = h - LEGS;
       if (cls === 'oven_tower') {
-        drawerStack(KB_LEGS, 700, z, Math.max(2, drawers || 2));
-        b.box(w - 8, 590, 18, 0, KB_LEGS + 710, z + 9, '#1c1c1e', { rough: 0.15 });
-        b.box(w - 8, 400, 18, 0, KB_LEGS + 1310, z + 9, '#1c1c1e', { rough: 0.15 });
-        b.box(w * 0.6, 12, 14, 0, KB_LEGS + 1240, z + 25, STEEL, METAL);
-        if (H > 1730) doorRow(KB_LEGS + 1720, H - 1720, z, 1, 'bottom');
+        drawerStack(LEGS, 700, z, Math.max(2, drawers || 2));
+        b.box(w - 8, 590, 18, 0, LEGS + 710, z + 9, '#1c1c1e', { rough: 0.15 });
+        b.box(w - 8, 400, 18, 0, LEGS + 1310, z + 9, '#1c1c1e', { rough: 0.15 });
+        b.box(w * 0.6, 12, 14, 0, LEGS + 1240, z + 25, STEEL, METAL);
+        if (H > 1730) doorRow(LEGS + 1720, H - 1720, z, 1, 'bottom');
       } else if (H > 1600) {
         const low = Math.round(H * 0.62);
-        doorRow(KB_LEGS, low, z, doors || 1, 'top');
-        doorRow(KB_LEGS + low, H - low, z, doors || 1, 'bottom');
-      } else doorRow(KB_LEGS, H, z, doors || 1, 'middle');
+        doorRow(LEGS, low, z, doors || 1, 'top');
+        doorRow(LEGS + low, H - low, z, doors || 1, 'bottom');
+      } else doorRow(LEGS, H, z, doors || 1, 'middle');
       return;
     }
     default: {
       // Floor units under the bench: legs + kickboard, carcass, fronts, benchtop.
       const cd = d - 20 - 18;
-      const body = h - KB_LEGS - benchT;
+      const body = h - LEGS - benchT;
       const z = -d / 2 + cd;
-      b.box(w - 10, KB_LEGS - 10, 16, 0, 0, z - 60, shade(color, 0.85));
-      b.box(w, body, cd, 0, KB_LEGS, -d / 2 + cd / 2, cls === 'dishwasher' ? '#d9dcdf' : color);
+      b.box(w - 10, LEGS - 10, 16, 0, 0, z - 60, shade(color, 0.85));
+      b.box(w, body, cd, 0, LEGS, -d / 2 + cd / 2, cls === 'dishwasher' ? '#d9dcdf' : color);
       b.box(w, benchT, d, 0, h - benchT, 0, benchCol, { rough: 0.5 });
-      if (cls === 'drawer') drawerStack(KB_LEGS, body, z, Math.max(1, drawers || 3));
+      if (cls === 'drawer') drawerStack(LEGS, body, z, Math.max(1, drawers || 3));
       else if (cls === 'cooktop') {
-        front(0, KB_LEGS + body - 150, w, 150, z, 'drawer', 1, 'middle');
-        b.box(w - 8, body - 160, 18, 0, KB_LEGS + 4, z + 9, '#1c1c1e', { rough: 0.15 });
-        b.box(w * 0.6, 12, 14, 0, KB_LEGS + body - 210, z + 25, STEEL, METAL);
+        front(0, LEGS + body - 150, w, 150, z, 'drawer', 1, 'middle');
+        b.box(w - 8, body - 160, 18, 0, LEGS + 4, z + 9, '#1c1c1e', { rough: 0.15 });
+        b.box(w * 0.6, 12, 14, 0, LEGS + body - 210, z + 25, STEEL, METAL);
         b.box(w - 60, 6, d - 100, 0, h, 0, '#101010', { rough: 0.1 });
         for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.cyl(70, 70, 3, (sx * w) / 4.5, h + 6, (sz * d) / 4.5, '#3a3a3a');
-      } else if (cls === 'dishwasher') front(0, KB_LEGS, w, body, z, 'drawer', 1, 'middle');
+      } else if (cls === 'dishwasher') front(0, LEGS, w, body, z, 'drawer', 1, 'middle');
       else if (drawers > 0 && doors > 0) {
-        drawerStack(KB_LEGS + body - 150, 150, z, 1);
-        doorRow(KB_LEGS, body - 150, z, doors, 'top');
-      } else if (drawers > 0) drawerStack(KB_LEGS, body, z, drawers);
-      else doorRow(KB_LEGS, body, z, doors || 1, 'top');
+        drawerStack(LEGS + body - 150, 150, z, 1);
+        doorRow(LEGS, body - 150, z, doors, 'top');
+      } else if (drawers > 0) drawerStack(LEGS, body, z, drawers);
+      else doorRow(LEGS, body, z, doors || 1, 'top');
       if (cls === 'sink') {
         b.box(Math.min(w - 100, 760), 3, d * 0.55, 0, h, 10, '#8e959c', METAL);
         b.box(Math.min(w - 100, 760) - 30, 2, d * 0.55 - 30, 0, h + 2, 10, '#5d646b', METAL);
@@ -432,6 +436,7 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       break;
     }
     case 'kaboodle':
+    case 'cabinet':
       kaboodleUnit(b, it);
       break;
     case 'bar_stool': {
@@ -779,7 +784,8 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       deck(b, it);
       break;
     case 'veranda':
-      if (it.underRoof && ctx.plate) coveredPorch(b, it, ctx.plate, 100, 3600);
+      if (it.options?.roof === 'none') b.box(w, 100, d, 0, 0, 0, '#c9c5bd', { rough: 0.95 }); // open: just the slab
+      else if (it.underRoof && ctx.plate) coveredPorch(b, it, ctx.plate, 100, 3600);
       else veranda(b, it, m);
       break;
     case 'porch':
@@ -789,13 +795,12 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
     case 'pergola':
       pergola(b, it);
       break;
-    case 'patio': {
-      b.box(w, h, d, 0, 0, 0, color, { rough: 0.95 });
-      // Paver joints every 400 mm
-      for (let x = -w / 2 + 400; x < w / 2; x += 400) b.box(6, 2, d, x, h, 0, shade(color, 0.7));
-      for (let z = -d / 2 + 400; z < d / 2; z += 400) b.box(w, 2, 6, 0, h, z, shade(color, 0.7));
+    case 'patio':
+      patio(b, it);
       break;
-    }
+    case 'step':
+      step(b, it);
+      break;
     case 'column':
       // Holding up the roof: runs up to the top of the walls.
       b.box(w, ctx.plate ? ctx.plate - it.elevation : h, d, 0, 0, 0, color);
@@ -1131,6 +1136,62 @@ function deck(b: Builder, it: Item) {
     for (const sx of [-1, 1]) b.box(12, bh - 60, d, sx * (w / 2 - 30), top + 30, 0, '#bfe3f0', glass);
     b.box(w, 40, 60, 0, top + bh - 40, d / 2 - 30, frame);
     for (const sx of [-1, 1]) b.box(60, 40, d, sx * (w / 2 - 30), top + bh - 40, 0, frame);
+  }
+}
+
+/**
+ * Retaining sides for raised fill: a block in the edge finish from the ground up to `h`, with joint lines on its
+ * faces for coursed finishes (brick, block, stone, sleepers).
+ */
+function fillBlock(b: Builder, w: number, h: number, d: number, x: number, z: number, edge: { color: string; course: number }) {
+  b.box(w, h, d, x, 0, z, edge.color, { rough: 0.92 });
+  if (!edge.course || h < edge.course) return;
+  const joint = shade(edge.color, 0.72);
+  for (let y = edge.course; y < h - 5; y += edge.course) {
+    for (const sz of [-1, 1]) b.box(w, 6, 2, x, y - 3, z + sz * (d / 2 + 1), joint);
+    for (const sx of [-1, 1]) b.box(2, 6, d, x + sx * (w / 2 + 1), y - 3, z, joint);
+  }
+}
+
+/** Paving: a slab with joints every `grid` mm, its top at `top`. */
+function paving(b: Builder, w: number, d: number, x: number, z: number, top: number, thick: number, color: string, grid = 400) {
+  b.box(w, thick, d, x, top - thick, z, color, { rough: 0.95 });
+  const joint = shade(color, 0.7);
+  for (let gx = -w / 2 + grid; gx < w / 2 - 1; gx += grid) b.box(6, 2, d, x + gx, top, z, joint);
+  for (let gz = -d / 2 + grid; gz < d / 2 - 1; gz += grid) b.box(w, 2, 6, x, top, z + gz, joint);
+}
+
+/** Patio: paving on the ground, or raised on fill with retaining sides (and the paving overhanging them a little). */
+function patio(b: Builder, it: Item) {
+  const { width: w, depth: d, height: h, color } = it;
+  const o = outdoorOpts(it);
+  if (h <= PAVE * 2.5) {
+    paving(b, w, d, 0, 0, Math.max(10, h), Math.max(10, h), color);
+    return;
+  }
+  fillBlock(b, w, h - PAVE, d, 0, 0, { color: o.edgeColor, course: o.edge.course });
+  paving(b, w + 2 * NOSE, d + 2 * NOSE, 0, 0, h, PAVE, color);
+}
+
+/** A single step: a solid block up to its tread (L-shaped for corner steps), paved on top with a nosing. */
+function step(b: Builder, it: Item) {
+  const { width: w, depth: d, height: h, color } = it;
+  const o = outdoorOpts(it);
+  const edge = { color: o.edgeColor, course: o.edge.course };
+  const pave = Math.min(PAVE, h / 2);
+  const parts = o.shape === 'corner' ? cornerLegs(it) : [[-w / 2, -d / 2, w / 2, d / 2] as [number, number, number, number]];
+  for (const [x0, y0, x1, y1] of parts) {
+    const pw = x1 - x0;
+    const pd = y1 - y0;
+    const cx = (x0 + x1) / 2;
+    const cz = (y0 + y1) / 2;
+    fillBlock(b, pw, h - pave, pd, cx, cz, edge);
+    // Nosing over the open edges (front, and the outer side of a corner step).
+    const out = (e: number, lim: number) => (Math.abs(e - lim) < 1 ? NOSE : 0);
+    const nx0 = out(x0, -w / 2);
+    const nx1 = out(x1, w / 2);
+    const nz1 = out(y1, d / 2);
+    paving(b, pw + nx0 + nx1, pd + nz1, cx + (nx1 - nx0) / 2, cz + nz1 / 2, h, pave, color, 600);
   }
 }
 
