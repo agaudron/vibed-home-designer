@@ -58,6 +58,7 @@ import { ElectricalLayer } from './electrical';
 import { OutsideDims, outsideDimensions } from './outsideDims';
 import { ELEC_MAP, elecPlacement, linkRefFor, litLights, newElecPoint, productOf } from '../electrical';
 import { flickSwitch, startLinking, toggleLink } from '../elecActions';
+import { useMobile, useTouch } from '../mobile';
 
 interface View {
   scale: number; // screen px per mm
@@ -111,6 +112,8 @@ interface DragState {
 }
 
 const PX_TOL = 10;
+/** Bigger tolerance for fingers. */
+const TOUCH_TOL = 18;
 
 export default function PlanView() {
   const design = useStore((s) => s.design);
@@ -143,7 +146,13 @@ export default function PlanView() {
   const spaceDown = useRef(false);
   const fitted = useRef(false);
 
-  const tol = PX_TOL / view.scale;
+  const touchScreen = useTouch();
+  const mobile = useMobile();
+  const tol = (touchScreen ? TOUCH_TOL : PX_TOL) / view.scale;
+  // Touch: fingers on the plan, a two-finger pinch in progress, and a tap waiting to see if it becomes a pan.
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d0: number; view: View; mid: Vec } | null>(null);
+  const pendingTap = useRef<{ id: number; ev: RPointerEvent<SVGSVGElement> } | null>(null);
   const grid = design.settings.snap;
 
   // ---------- view helpers ----------
@@ -381,7 +390,11 @@ export default function PlanView() {
   const beginDrag = (e: RPointerEvent, drag: Drag) => {
     dragRef.current = { drag, downX: e.clientX, downY: e.clientY, active: drag.kind === 'pan', recorded: false };
     setDragKind(drag.kind);
-    svgRef.current!.setPointerCapture(e.pointerId);
+    try {
+      svgRef.current!.setPointerCapture(e.pointerId);
+    } catch {
+      // The pointer may already be gone (a very quick tap); the drag still works without capture.
+    }
   };
 
   const applyDrag = (fn: (d: Design) => Design) => {
@@ -393,7 +406,36 @@ export default function PlanView() {
     store.update(fn, false);
   };
 
+  /** Two fingers down: zoom and pan the plan (dropping whatever the first finger had started). */
+  const startPinch = () => {
+    const ds = dragRef.current;
+    if (ds?.recorded) store.undo(); // the first finger may have started moving something
+    dragRef.current = null;
+    setDragKind(null);
+    setItemGuides([]);
+    pendingTap.current = null;
+    const [a, b] = [...touches.current.values()];
+    const r = svgRef.current!.getBoundingClientRect();
+    pinch.current = { d0: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), view: viewRef.current, mid: v((a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top) };
+  };
+
   const onPointerDown = (e: RPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.current.size >= 2) {
+        startPinch();
+        return;
+      }
+      // Drawing and placing tools: a tap acts (on lift), a drag pans, so pinching never drops a point by mistake.
+      if (tool.kind !== 'select' && tool.kind !== 'room') {
+        pendingTap.current = { id: e.pointerId, ev: { ...e, clientX: e.clientX, clientY: e.clientY, target: e.target, button: 0, pointerType: 'tap', preventDefault: () => {} } as unknown as RPointerEvent<SVGSVGElement> };
+        const vw = viewRef.current;
+        beginDrag(e, { kind: 'pan', sx: e.clientX, sy: e.clientY, tx: vw.tx, ty: vw.ty });
+        if (dragRef.current) dragRef.current.active = false; // it only pans once the finger moves
+        setMouse(toWorld(e.clientX, e.clientY));
+        return;
+      }
+    }
     setMods({ shift: e.shiftKey, alt: e.altKey });
     const p = toWorld(e.clientX, e.clientY);
     const vw = viewRef.current;
@@ -591,6 +633,21 @@ export default function PlanView() {
   };
 
   const onPointerMove = (e: RPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const pz = pinch.current;
+      if (pz && touches.current.size >= 2) {
+        const [a, b] = [...touches.current.values()];
+        const r = svgRef.current!.getBoundingClientRect();
+        const mid = v((a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+        const scale = Math.min(2, Math.max(0.004, (pz.view.scale * Math.hypot(a.x - b.x, a.y - b.y)) / pz.d0));
+        // Keep the plan point that was under the fingers' midpoint under it (zoom + pan together).
+        const wx = (pz.mid.x - pz.view.tx) / pz.view.scale;
+        const wy = (pz.mid.y - pz.view.ty) / pz.view.scale;
+        setView({ scale, tx: mid.x - wx * scale, ty: mid.y - wy * scale });
+        return;
+      }
+    }
     const p = toWorld(e.clientX, e.clientY);
     setMouse(p);
     if (e.shiftKey !== mods.shift || e.altKey !== mods.alt) setMods({ shift: e.shiftKey, alt: e.altKey });
@@ -755,6 +812,24 @@ export default function PlanView() {
   };
 
   const onPointerUp = (e: RPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.delete(e.pointerId);
+      if (pinch.current) {
+        if (touches.current.size < 2) pinch.current = null;
+        dragRef.current = null;
+        setDragKind(null);
+        return;
+      }
+      // A tap with a drawing / placing tool (the finger didn't move far enough to pan): act on it now.
+      const tap = pendingTap.current;
+      pendingTap.current = null;
+      if (tap && tap.id === e.pointerId && !dragRef.current?.active) {
+        dragRef.current = null;
+        setDragKind(null);
+        onPointerDown(tap.ev);
+        return;
+      }
+    }
     const ds = dragRef.current;
     dragRef.current = null;
     setDragKind(null);
@@ -1435,6 +1510,7 @@ export default function PlanView() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onPointerLeave={() => setMouse(null)}
         onContextMenu={(e) => e.preventDefault()}
         onDoubleClick={() => {
@@ -1577,6 +1653,28 @@ export default function PlanView() {
         />
       )}
       <PlanHud tool={tool.kind} chainLen={chain.length} typed={typed} mouse={snap?.p ?? mouse} snapKind={snap?.kind} />
+      {mobile && tool.kind !== 'select' && (
+        // Phones: what Enter / Esc / right-click do on a computer.
+        <div className="plan-actions">
+          <span className="hint">{TOUCH_HINTS[tool.kind]}</span>
+          {tool.kind === 'floor' && chain.length > 1 && <button onClick={() => setChain((c) => c.slice(0, -1))}>Undo point</button>}
+          {tool.kind === 'floor' && chain.length >= 3 && (
+            <button className="primary" onClick={() => closeFloor(chain)}>
+              Finish floor
+            </button>
+          )}
+          {tool.kind === 'wall' && chain.length > 0 && <button onClick={finishChain}>End walls</button>}
+          <button
+            className={tool.kind === 'floor' && chain.length >= 3 ? '' : 'primary'}
+            onClick={() => {
+              finishChain();
+              store.setTool({ kind: 'select' });
+            }}
+          >
+            Done
+          </button>
+        </div>
+      )}
       <div className="plan-zoom">
         <button title="Zoom in" onClick={() => zoomBy(1.25)}>
           +
@@ -1612,6 +1710,18 @@ const HINTS: Record<string, string[]> = {
   opening: ['Hover a wall and click to insert', 'Ctrl+click to keep placing · Esc to cancel'],
   elec: ['Click to place each one · switches and power points go on the nearest wall', 'Lights line up with each other · Shift = no snapping', 'Esc or right-click when done'],
   'elec-link': ['Click lights to add them to this switch, click again to take them off', 'Fans with a light: switches link the light, fan controllers the fan', 'Click another switch to link that one instead', 'Esc or right-click when done'],
+};
+
+/** Short hints for touch screens (shown above the Done button). */
+const TOUCH_HINTS: Record<string, string> = {
+  wall: 'Tap to start a wall, then tap each corner',
+  room: 'Drag a rectangle for a room',
+  floor: 'Tap each corner of the floor',
+  measure: 'Tap two points to measure',
+  place: 'Tap where it goes',
+  opening: 'Tap a wall to put it in',
+  elec: 'Tap to place; switches and power points go on walls',
+  'elec-link': 'Tap lights to add or take them off',
 };
 
 function PlanHud(props: { tool: string; chainLen: number; typed: string; mouse: Vec | null; snapKind?: string }) {

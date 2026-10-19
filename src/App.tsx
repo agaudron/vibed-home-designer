@@ -11,6 +11,8 @@ import ProductCard from './panels/ProductCard';
 import Toolbar from './panels/Toolbar';
 import PlanView from './plan/PlanView';
 import { store, togglePanel, useStore } from './store';
+import { isMobile, useMobile } from './mobile';
+import type { ViewMode } from './types';
 import Scene3D from './three/Scene3D';
 
 export default function App() {
@@ -20,6 +22,10 @@ export default function App() {
   const hideProps = useStore((s) => s.hideProps);
   const kitchen = useStore((s) => s.kitchen);
   const electric = useStore((s) => s.electric);
+  const sheet = useStore((s) => s.sheet);
+  const mobile = useMobile();
+  // Phones show one view at a time.
+  const mode: ViewMode = mobile && viewMode === 'split' ? '2d' : viewMode;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -91,9 +97,18 @@ export default function App() {
     document.addEventListener('change', onChange);
     // Picking the Floor tool brings back the side panel (it shows the floor areas).
     let lastTool = store.state.tool.kind;
+    let lastDesigner = !!(store.state.kitchen || store.state.electric);
     const unsubTool = store.subscribe(() => {
       const t = store.state.tool.kind;
-      if (t === 'floor' && lastTool !== 'floor' && store.state.hideProps) store.set({ hideProps: false });
+      if (t === 'floor' && lastTool !== 'floor' && store.state.hideProps && !isMobile()) store.set({ hideProps: false });
+      if (isMobile()) {
+        // Phones: the sheet gets out of the way once you've picked something to place or draw (tap the plan next),
+        // and opening the kitchen / electrical designer shows it in the sheet.
+        if (t !== lastTool && t !== 'select' && store.state.sheet) store.set({ sheet: null });
+        const designer = !!(store.state.kitchen || store.state.electric);
+        if (designer && !lastDesigner) store.set({ sheet: 'catalog' });
+        lastDesigner = designer;
+      }
       lastTool = t;
     });
     window.addEventListener('keydown', onKey);
@@ -105,6 +120,45 @@ export default function App() {
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
   }, []);
+
+  const leftPanel = kitchen ? <KitchenDesigner roomId={kitchen} /> : electric ? <ElectricalDesigner /> : <Catalog />;
+  const views = (
+    <div className={`views mode-${mode}`}>
+      <ProductCard />
+      {mode !== '3d' && (
+        <div className="view-pane">
+          <PlanView />
+        </div>
+      )}
+      {mode !== '2d' && (
+        <div className="view-pane">
+          <Scene3D />
+        </div>
+      )}
+    </div>
+  );
+
+  if (mobile)
+    return (
+      <div className="app mobile">
+        <Legal />
+        <Toolbar />
+        <div className="main">{views}</div>
+        {sheet && (
+          <div className={`sheet sheet-${sheet}`}>
+            <div className="sheet-head">
+              <strong>{sheet === 'props' ? 'Properties' : kitchen || electric ? 'Designer' : 'Add to the plan'}</strong>
+              <button onClick={() => store.set({ sheet: null })} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <div className="sheet-body">{sheet === 'props' ? <Properties /> : leftPanel}</div>
+          </div>
+        )}
+        <MobileBar mode={mode} />
+        {status && <div className="toast">{status}</div>}
+      </div>
+    );
 
   return (
     <div className="app">
@@ -118,25 +172,13 @@ export default function App() {
           </button>
         ) : (
           <div className="panel-wrap">
-            {kitchen ? <KitchenDesigner roomId={kitchen} /> : electric ? <ElectricalDesigner /> : <Catalog />}
+            {leftPanel}
             <button className="panel-collapse left" onClick={() => togglePanel('hideCatalog')} title="Hide the catalog for more room ( [ )">
               ‹
             </button>
           </div>
         )}
-        <div className={`views mode-${viewMode}`}>
-          <ProductCard />
-          {viewMode !== '3d' && (
-            <div className="view-pane">
-              <PlanView />
-            </div>
-          )}
-          {viewMode !== '2d' && (
-            <div className="view-pane">
-              <Scene3D />
-            </div>
-          )}
-        </div>
+        {views}
         {hideProps ? (
           <button className="panel-rail right" onClick={() => togglePanel('hideProps')} title="Show properties & settings ( ] )">
             <span>‹</span>
@@ -153,5 +195,33 @@ export default function App() {
       </div>
       {status && <div className="toast">{status}</div>}
     </div>
+  );
+}
+
+/** Phone bottom bar: open the catalogue (or designer) or properties in the bottom sheet, and switch 2D / 3D. */
+function MobileBar({ mode }: { mode: ViewMode }) {
+  const sheet = useStore((s) => s.sheet);
+  const selected = useStore((s) => s.selection !== null);
+  const kitchen = useStore((s) => s.kitchen);
+  const electric = useStore((s) => s.electric);
+  const toggle = (which: 'catalog' | 'props') => store.set({ sheet: sheet === which ? null : which });
+  return (
+    <nav className="mobile-bar">
+      <button className={sheet === 'catalog' ? 'active' : ''} onClick={() => toggle('catalog')}>
+        <span className="ico">＋</span>
+        {kitchen ? 'Kitchen' : electric ? 'Electrical' : 'Add'}
+      </button>
+      <button className={`${sheet === 'props' ? 'active' : ''}${selected && sheet !== 'props' ? ' has-sel' : ''}`} onClick={() => toggle('props')}>
+        <span className="ico">☰</span>
+        {selected ? 'Selected' : 'Settings'}
+      </button>
+      <div className="group seg">
+        {(['2d', '3d'] as ViewMode[]).map((m) => (
+          <button key={m} className={mode === m ? 'active' : ''} onClick={() => store.set({ viewMode: m })}>
+            {m.toUpperCase()}
+          </button>
+        ))}
+      </div>
+    </nav>
   );
 }

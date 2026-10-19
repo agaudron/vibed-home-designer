@@ -3,6 +3,7 @@ import { addOrSelectRoof } from '../actions';
 import { closeElectrical, openElectrical } from '../elecActions';
 import { exportPlanSvg, exportScreenshot, openDesign, resetFileHandle, saveDesign } from '../fileio';
 import { copyShareLink } from '../share';
+import { useMobile } from '../mobile';
 import { createSampleDesign } from '../sample';
 import { emptyDesign, store, useStore } from '../store';
 import type { Tool, ViewMode } from '../types';
@@ -27,7 +28,8 @@ export default function Toolbar() {
   // The settings panel shows whenever nothing is selected.
   const settingsOpen = useStore((s) => s.selection === null && s.tool.kind !== 'floor'); // the Floor tool shows floor areas instead
   useStore((s) => s.design); // re-render for undo/redo availability
-  const [menu, setMenu] = useState<null | 'new' | 'export'>(null);
+  const [menu, setMenu] = useState<null | 'new' | 'export' | 'file'>(null);
+  const mobile = useMobile();
 
   useEffect(() => {
     if (!menu) return;
@@ -46,6 +48,62 @@ export default function Toolbar() {
     store.replaceDesign(d, null);
     if (!sample) store.setTool({ kind: 'room' });
   };
+
+  if (mobile) {
+    // Phones: one scrolling row; file actions under ☰, tools as icons, the 2D / 3D switch in the bottom bar.
+    const act = (fn: () => void) => () => {
+      setMenu(null);
+      fn();
+    };
+    return (
+      <header className="toolbar mobile">
+        <div className="menu-wrap">
+          <button onClick={() => setMenu(menu === 'file' ? null : 'file')} aria-label="Menu">
+            ☰
+          </button>
+          {menu === 'file' && (
+            <div className="menu">
+              <div className="menu-title">{name}</div>
+              <button onClick={() => newDesign(false)}>New blank plan</button>
+              <button onClick={() => newDesign(true)}>New sample home</button>
+              <button onClick={act(() => void openDesign())}>Open…</button>
+              <button onClick={act(() => void saveDesign(false))}>Save</button>
+              <button onClick={act(() => void saveDesign(true))}>Save as…</button>
+              <button onClick={act(() => void copyShareLink())}>Copy share link</button>
+              <button onClick={act(exportScreenshot)}>Export 3D view as PNG</button>
+              <button onClick={act(exportPlanSvg)}>Export floor plan as SVG</button>
+            </div>
+          )}
+        </div>
+        <button onClick={() => store.undo()} disabled={!store.canUndo} aria-label="Undo">
+          ↶
+        </button>
+        <button onClick={() => store.redo()} disabled={!store.canRedo} aria-label="Redo">
+          ↷
+        </button>
+        <span className="tb-sep" />
+        {TOOLS.map((t) => (
+          <button key={t.label} className={tool.kind === t.tool.kind ? 'active' : ''} onClick={() => store.setTool(t.tool)} aria-label={t.label} title={t.tip}>
+            <span className="ico">{t.icon}</span>
+            <span className="tb-label">{t.label}</span>
+          </button>
+        ))}
+        <span className="tb-sep" />
+        <button className={roofSelected ? 'active' : ''} onClick={() => (addOrSelectRoof(), store.set({ sheet: 'props' }))}>
+          ⌂ <span className="tb-label">Roof</span>
+        </button>
+        <button className={facadeSelected ? 'active' : ''} onClick={() => store.set({ selection: { kind: 'facade', id: 'facade' }, tool: { kind: 'select' }, sheet: 'props' })}>
+          ▦ <span className="tb-label">Facade</span>
+        </button>
+        <button className={electric ? 'active' : ''} onClick={() => (electric ? closeElectrical() : openElectrical())}>
+          ⚡ <span className="tb-label">Electrical</span>
+        </button>
+        <button className={settingsOpen ? 'active' : ''} onClick={() => store.set({ selection: null, tool: { kind: 'select' }, sheet: 'props' })}>
+          ⚙ <span className="tb-label">Settings</span>
+        </button>
+      </header>
+    );
+  }
 
   return (
     <header className="toolbar">

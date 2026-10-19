@@ -21,6 +21,7 @@ import { buildItem, buildOpening, Builder } from './builders';
 import { buildElectrical } from './electrical3d';
 import { beamOf, cctColor, cctOf, lightSource, litLights, productOf } from '../electrical';
 import { floorLevelOf, itemBase } from '../levels';
+import { useTouch, walkStick } from '../mobile';
 import type { ElecPoint } from '../types';
 import type { ItemContext, MatFn, MatOpts } from './builders';
 import { buildMeasures, measuresForItem } from './measure3d';
@@ -53,8 +54,54 @@ export interface SceneHandle {
 
 let sceneHandle: SceneHandle | null = null;
 export const getSceneHandle = () => sceneHandle;
+/** Walk-through actions for the on-screen (touch) controls. */
+const walkActions: { door?: () => void } = {};
+
+/** Touch walk-through: a thumb joystick to move (forward / back / sideways). */
+function WalkStick() {
+  const [knob, setKnob] = useState({ x: 0, y: 0 });
+  const R = 46;
+  const move = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2);
+    let dy = e.clientY - (r.top + r.height / 2);
+    const l = Math.hypot(dx, dy);
+    if (l > R) {
+      dx = (dx / l) * R;
+      dy = (dy / l) * R;
+    }
+    setKnob({ x: dx, y: dy });
+    walkStick.strafe = dx / R;
+    walkStick.fwd = -dy / R;
+  };
+  const end = () => {
+    setKnob({ x: 0, y: 0 });
+    walkStick.fwd = 0;
+    walkStick.strafe = 0;
+  };
+  useEffect(() => end, []);
+  return (
+    <div
+      className="walk-stick"
+      onPointerDown={(e) => {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // Already lifted: nothing to capture.
+        }
+        move(e);
+      }}
+      onPointerMove={(e) => e.buttons && move(e)}
+      onPointerUp={end}
+      onPointerCancel={end}
+    >
+      <div className="walk-stick-knob" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
+    </div>
+  );
+}
 
 export default function Scene3D() {
+  const touchScreen = useTouch();
   const ref = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const cutaway = useStore((s) => s.cutaway);
@@ -775,6 +822,7 @@ export default function Scene3D() {
       return out;
     };
     /** Open or close the door straight ahead (within reach). */
+    walkActions.door = () => toggleDoorAhead();
     const toggleDoorAhead = () => {
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       const hit = raycaster.intersectObject(house, true).find((h) => h.distance < 2600 && selOf(h.object, 'opening'));
@@ -1060,10 +1108,14 @@ export default function Scene3D() {
       lastT = t;
       const d = store.state.design;
       const world = worldFor(d);
-      const fwd = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-      const strafe = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-      if (fwd || strafe) {
-        const speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 3500 : 1400; // mm/s
+      const kf = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+      const ks = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+      // Keys, or the touch joystick (which moves slower the less it's pushed).
+      const fwd = kf || walkStick.fwd;
+      const strafe = ks || walkStick.strafe;
+      if (Math.abs(fwd) > 0.05 || Math.abs(strafe) > 0.05) {
+        const push = kf || ks ? 1 : Math.min(1, Math.hypot(walkStick.fwd, walkStick.strafe));
+        const speed = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 3500 : 1400) * push; // mm/s
         const sy = Math.sin(walk.yaw);
         const cy = Math.cos(walk.yaw);
         let mx = -sy * fwd + cy * strafe;
@@ -1266,7 +1318,14 @@ export default function Scene3D() {
       else if (!store.state.walking && walk) stopWalk();
     });
 
+    let lastTouch: { id: number; x: number; y: number } | null = null;
     const onDownCapture = (e: PointerEvent) => {
+      if (walk && e.pointerType === 'touch') {
+        // Touch: drag to look around (no pointer lock on phones); the joystick and door button do the rest.
+        lastTouch = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        e.stopPropagation();
+        return;
+      }
       if (walk) {
         // With the mouse captured, a click opens/closes the door you're looking at.
         // With the shotgun, left click fires a barrel and right click fires both.
@@ -1407,6 +1466,13 @@ export default function Scene3D() {
 
     const onMove = (e: PointerEvent) => {
       if (walk) {
+        if (e.pointerType === 'touch') {
+          if (lastTouch && lastTouch.id === e.pointerId) {
+            look((e.clientX - lastTouch.x) * 1.3, (e.clientY - lastTouch.y) * 1.3);
+            lastTouch = { id: e.pointerId, x: e.clientX, y: e.clientY };
+          }
+          return;
+        }
         if (document.pointerLockElement !== canvas && e.buttons & 1) look(e.movementX, e.movementY);
         return;
       }
@@ -1667,6 +1733,14 @@ export default function Scene3D() {
             }
           }}
         />
+      )}
+      {walking && touchScreen && (
+        <>
+          <WalkStick />
+          <button className="walk-door-btn" onClick={() => walkActions.door?.()}>
+            Door
+          </button>
+        </>
       )}
       {walking && (
         <div className="walk-hud">

@@ -2261,3 +2261,238 @@ svg.plan.panning {
   fill: #6a737d;
   font-weight: 400;
 }
+
+/* ---------- Touch & phones ---------- */
+/* Fingers zoom / pan the plan ourselves (pinch, two-finger drag), not the page. */
+.plan-canvas {
+  touch-action: none;
+}
+.app.mobile {
+  height: 100dvh;
+}
+.toolbar.mobile {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 4px;
+  padding: 6px 8px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.toolbar.mobile::-webkit-scrollbar {
+  display: none;
+}
+.toolbar.mobile > button,
+.toolbar.mobile .menu-wrap > button {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+}
+/* Tools show as icons; the active one is named. */
+.toolbar.mobile .tb-label {
+  display: none;
+  font-size: 12.5px;
+}
+.toolbar.mobile button.active .tb-label {
+  display: inline;
+}
+.tb-sep {
+  flex-shrink: 0;
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--border);
+}
+/* The scrolling toolbar would clip a dropdown, so menus sit over the page instead. */
+.toolbar.mobile .menu {
+  position: fixed;
+  top: 52px;
+  left: 8px;
+  right: 8px;
+  max-height: 70dvh;
+  overflow-y: auto;
+}
+.toolbar.mobile .menu button {
+  padding: 11px 12px;
+  font-size: 15px;
+}
+.menu-title {
+  padding: 6px 12px 4px;
+  font-weight: 600;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app.mobile .main {
+  flex: 1;
+  min-height: 0;
+}
+.mobile-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.mobile-bar > button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 6px;
+  font-size: 14px;
+}
+.mobile-bar > button.has-sel {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.mobile-bar .seg button {
+  padding: 8px 12px;
+}
+/* Bottom sheet: the catalogue / designer or properties, over the lower part of the view. */
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(55px + env(safe-area-inset-bottom));
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  height: 58dvh;
+  background: var(--panel);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -8px 30px rgba(20, 24, 28, 0.18);
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sheet-head button {
+  border: none;
+  font-size: 16px;
+  padding: 6px 10px;
+}
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.sheet-body > .catalog,
+.sheet-body > .props {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border: none;
+}
+/* 16 px stops iOS zooming the page when a field is tapped. */
+.app.mobile input,
+.app.mobile select,
+.app.mobile textarea {
+  font-size: 16px;
+}
+.app.mobile .plan-hud,
+.app.mobile .scene-hint {
+  display: none;
+}
+.app.mobile .plan-zoom button {
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
+}
+.plan-actions {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(20, 24, 28, 0.14);
+}
+.plan-actions .hint {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.plan-actions button {
+  padding: 9px 12px;
+}
+.app.mobile .scene-tools {
+  left: 8px;
+  right: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.app.mobile .toast {
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  max-width: calc(100% - 24px);
+  text-align: center;
+}
+.app.mobile .product-card {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: auto;
+  max-height: 70%;
+}
+.app.mobile .legal-notice {
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  width: calc(100% - 16px);
+}
+.app.mobile .legal-backdrop {
+  padding: 8px;
+}
+.app.mobile .legal-body {
+  padding: 4px 14px 14px;
+}
+/* Walk-through on touch: joystick bottom-left, door button bottom-right; the key help is hidden on phones. */
+.walk-stick {
+  position: absolute;
+  left: 22px;
+  bottom: 26px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  touch-action: none;
+}
+.walk-stick-knob {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+.walk-door-btn {
+  position: absolute;
+  right: 22px;
+  bottom: 120px; /* above the music player */
+  z-index: 20;
+  padding: 14px 20px;
+  border-radius: 30px;
+  font-size: 15px;
+  background: rgba(255, 255, 255, 0.85);
+}
+.app.mobile .walk-panel > span {
+  display: none;
+}

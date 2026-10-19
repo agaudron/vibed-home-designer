@@ -19,6 +19,8 @@ export interface AppState {
   electric: boolean;
   /** Light spread demo: the switch gangs that are on (see gangKey); null = demo off. */
   lightDemo: string[] | null;
+  /** Phone layout: which panel the bottom sheet shows (the catalogue / designer, or properties), if any. */
+  sheet: 'catalog' | 'props' | null;
   /** Where the walker is (plan mm) and which way they face, for the 2D marker. */
   walker: { x: number; y: number; yaw: number } | null;
   /** Side panels collapsed to make more room for the views. */
@@ -162,6 +164,7 @@ class Store {
       kitchen: null,
       electric: false,
       lightDemo: null,
+      sheet: null,
       walker: null,
       hideCatalog: readPref('hideCatalog'),
       hideProps: readPref('hideProps'),
