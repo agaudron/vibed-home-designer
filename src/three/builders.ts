@@ -379,6 +379,8 @@ export interface ItemContext {
   sky?: { ceiling: number; shaftTop: number; roof: { y: number; n: [number, number, number] } | null; cutaway: boolean };
   /** Height of the ground relative to the house floor (0, or below it for a raised house). */
   ground?: number;
+  /** Kitchen units: a bulkhead from the top of the unit up to `top` (house-floor relative). */
+  bulkhead?: { top: number; color: string; shadowline: boolean };
 }
 
 export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Group {
@@ -462,9 +464,19 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       break;
     }
     case 'kaboodle':
-    case 'cabinet':
+    case 'cabinet': {
       kaboodleUnit(b, it);
+      const bh = ctx.bulkhead;
+      // Bulkhead: a plasterboard box (or door-finished panel) from the top of the unit to the ceiling, with an
+      // optional 10 mm shadowline (recessed gap) where they meet.
+      const rise = bh ? bh.top - it.elevation - h : 0;
+      if (bh && rise > 10) {
+        const gap = bh.shadowline ? 10 : 0;
+        if (gap) b.box(w - 30, gap, d - 30, 0, h, -15, '#2a2a2b');
+        b.box(w, rise - gap, d, 0, h + gap, 0, bh.color, { rough: 0.9 });
+      }
       break;
+    }
     case 'bar_stool': {
       b.cyl(w * 0.32, w * 0.36, 20, 0, 0, 0, DARK, METAL);
       b.cyl(22, 22, h - 70, 0, 20, 0, STEEL, METAL);

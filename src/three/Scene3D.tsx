@@ -21,6 +21,7 @@ import { buildItem, buildOpening, Builder } from './builders';
 import { buildElectrical } from './electrical3d';
 import { beamOf, cctColor, cctOf, lightSource, litLights, productOf } from '../electrical';
 import { floorLevelOf, itemBase } from '../levels';
+import { bulkheads } from '../kitchen';
 import { useTouch, walkStick } from '../mobile';
 import type { ElecPoint } from '../types';
 import type { ItemContext, MatFn, MatOpts } from './builders';
@@ -2055,7 +2056,7 @@ function floorTextureAt(kind: FloorFinish, deg: number, size: Required<FloorSize
   return t;
 }
 
-type ItemCache = Map<string, { item: Item; selected: boolean; plate: number | undefined; sky: string; base: number; ground: number; obj: THREE.Object3D }>;
+type ItemCache = Map<string, { item: Item; selected: boolean; plate: number | undefined; sky: string; base: number; ground: number; bulk: string; obj: THREE.Object3D }>;
 
 // ---------- Skylights ----------
 type CRect = { x0: number; y0: number; x1: number; y1: number };
@@ -2334,6 +2335,7 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
   const seen = new Set<string>();
   const plate = d.roof ? roofPlate(d, d.roof) : undefined;
   const ceilingH = ceilingOf(d)?.height ?? Math.max(0, ...d.walls.map((w) => w.height));
+  const bulks = bulkheads(d, ceilingH);
   for (const it of d.items) {
     // Porches under the main roof and the columns holding it up rise to the top of the walls.
     const itemPlate = it.underRoof || (roofRes && !('error' in roofRes) && roofRes.supports.includes(it.id)) ? plate : undefined;
@@ -2345,15 +2347,17 @@ function buildHouse(d: Design, selection: Selection | null, cutaway: boolean, sh
     const skyKey = sky ? JSON.stringify(sky) : '';
     const base = itemBase(d, it); // decks, patios and outside stairs stand on the ground
     const ground = -floorLevelOf(d);
-    if (cached && cached.item === it && cached.selected === selected && cached.plate === itemPlate && cached.sky === skyKey && cached.base === base && cached.ground === ground) {
+    const bulkhead = bulks.get(it.id);
+    const bulk = bulkhead ? JSON.stringify(bulkhead) : '';
+    if (cached && cached.item === it && cached.selected === selected && cached.plate === itemPlate && cached.sky === skyKey && cached.base === base && cached.ground === ground && cached.bulk === bulk) {
       house.add(cached.obj);
       continue;
     }
-    const g = buildItem(it, selected ? highlight : plain, { plate: itemPlate, sky, ground });
+    const g = buildItem(it, selected ? highlight : plain, { plate: itemPlate, sky, ground, bulkhead });
     g.position.set(it.x, it.elevation + base, it.y);
     g.rotation.y = -THREE.MathUtils.degToRad(it.rotation);
     g.userData.sel = { kind: 'item', id: it.id };
-    cache.set(it.id, { item: it, selected, plate: itemPlate, sky: skyKey, base, ground, obj: g });
+    cache.set(it.id, { item: it, selected, plate: itemPlate, sky: skyKey, base, ground, bulk, obj: g });
     house.add(g);
   }
   for (const id of [...cache.keys()]) if (!seen.has(id)) cache.delete(id);

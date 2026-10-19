@@ -178,3 +178,24 @@ export function openKitchenDesigner(roomId: string) {
 export function closeKitchenDesigner() {
   store.set({ kitchen: null, tool: { kind: 'select' } });
 }
+
+/** Units a bulkhead goes over: wall-hung and full-height ones. */
+const BULKHEAD_UNITS = new Set(['wall', 'wall_corner', 'rangehood', 'fridge', 'tall', 'oven_tower', 'tower']);
+
+/**
+ * Bulkheads for a design: for each wall / tall unit in a kitchen or laundry with a bulkhead on, how high it goes
+ * (the ceiling), its colour (the ceiling, or the doors), and whether there's a shadowline under it.
+ */
+export function bulkheads(d: Design, ceiling: number): Map<string, { top: number; color: string; shadowline: boolean }> {
+  const out = new Map<string, { top: number; color: string; shadowline: boolean }>();
+  for (const r of d.rooms) {
+    const bh = r.kitchen?.bulkhead;
+    if (!bh?.on) continue;
+    for (const it of kitchenItems(d, r)) {
+      if (!BULKHEAD_UNITS.has(String(it.options?.cls ?? ''))) continue;
+      if (it.elevation + it.height >= ceiling - 20) continue; // already up to the ceiling
+      out.set(it.id, { top: ceiling, color: bh.finish === 'doors' ? it.color : d.settings.ceilingColor, shadowline: !!bh.shadowline });
+    }
+  }
+  return out;
+}

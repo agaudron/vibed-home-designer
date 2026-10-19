@@ -97,6 +97,37 @@ export default function KitchenDesigner({ roomId }: { roomId: string }) {
             </button>
           </div>
         </div>
+        <div className="kd-section">
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={!!room.kitchen?.bulkhead?.on}
+              onChange={(e) => setKitchenStyle(room.id, { bulkhead: { ...room.kitchen?.bulkhead, on: e.target.checked } })}
+            />
+            Bulkhead above wall cabinets
+          </label>
+          {room.kitchen?.bulkhead?.on && (
+            <>
+              <div className="presets">
+                {(
+                  [
+                    ['plaster', 'Plaster (ceiling colour)'],
+                    ['doors', 'Match the doors'],
+                  ] as const
+                ).map(([k, label]) => (
+                  <button key={k} className={(room.kitchen?.bulkhead?.finish ?? 'plaster') === k ? 'on' : ''} onClick={() => setKitchenStyle(room.id, { bulkhead: { on: true, ...room.kitchen?.bulkhead, finish: k } })}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <label className="toggle">
+                <input type="checkbox" checked={!!room.kitchen?.bulkhead?.shadowline} onChange={(e) => setKitchenStyle(room.id, { bulkhead: { on: true, ...room.kitchen?.bulkhead, shadowline: e.target.checked } })} />
+                10 mm shadowline under it
+              </label>
+              <p className="note">Fills from the top of the wall cabinets and tall units up to the ceiling ({design.settings.ceilingHeight ? `${design.settings.ceilingHeight} mm` : 'the top of the walls'}).</p>
+            </>
+          )}
+        </div>
         {range === 'custom' ? (
           <CustomCabinetry room={room} />
         ) : (

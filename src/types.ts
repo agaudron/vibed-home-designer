@@ -167,6 +167,8 @@ export interface KitchenStyle {
   range?: 'custom' | 'kaboodle';
   /** Custom cabinetry finishes and heights (see cabinetry.ts); unset fields use the defaults. */
   custom?: Partial<CustomKitchenStyle>;
+  /** Bulkhead filling from the top of the wall cabinets (and tall units) up to the ceiling. */
+  bulkhead?: { on: boolean; finish?: 'plaster' | 'doors'; shadowline?: boolean };
 }
 
 /** Custom cabinetry: door profile and colour, benchtop, handles, and the kick / bench / overhead heights (mm). */
