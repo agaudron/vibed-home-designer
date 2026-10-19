@@ -41,6 +41,7 @@ export function itemSymbol(type: string, w: number, d: number, options?: Record<
       );
     case 'wardrobe':
     case 'wardrobe_hinged':
+    case 'linen':
     case 'walkin_shelving': {
       const doors = Math.max(1, Math.round(w / (type === 'wardrobe' ? 1200 : 600)));
       return (

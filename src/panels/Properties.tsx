@@ -567,6 +567,7 @@ function DesignProps({ design }: { design: Design }) {
         <Toggle label="Show wall lengths" value={s.showDimensions} onChange={(v) => setS({ showDimensions: v })} />
         <Toggle label="Show room sizes (width × length and area)" value={s.showRoomDimensions} onChange={(v) => setS({ showRoomDimensions: v })} />
         <Toggle label="Show each room's side measurements" value={!!s.showRoomSides} onChange={(v) => setS({ showRoomSides: v })} />
+        <Toggle label="Show interior door sizes" value={!!s.showDoorSizes} onChange={(v) => setS({ showDoorSizes: v })} />
         <Toggle label="Show outside dimensions (room sizes along each side of the house)" value={!!s.showOutsideDims} onChange={(v) => setS({ showOutsideDims: v })} />
         {s.showOutsideDims && <Toggle label="Include wall thicknesses" value={s.outsideDimWalls !== false} onChange={(v) => setS({ outsideDimWalls: v })} />}
         <Toggle label="Show clearance measurements (green gaps to walls and items)" value={!!s.showClearances} onChange={(v) => setS({ showClearances: v })} />

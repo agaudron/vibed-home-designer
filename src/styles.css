@@ -2496,3 +2496,24 @@ svg.plan.panning {
 .app.mobile .walk-panel > span {
   display: none;
 }
+/* Interior door sizes written in the doorway */
+.plan .door-size {
+  pointer-events: none;
+}
+.plan .door-size rect {
+  fill: #fff;
+  fill-opacity: 0.9;
+  stroke: #8b6f47;
+  stroke-width: 1;
+}
+.plan .door-size text {
+  fill: #6b5230;
+  font-weight: 600;
+}
+.plan .outside-dims text.name-t {
+  fill: #0f7b74;
+  font-weight: 500;
+}
+.plan .outside-dims text.robe-t {
+  fill: #8b6f47;
+}

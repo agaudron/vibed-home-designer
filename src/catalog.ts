@@ -106,6 +106,7 @@ export const ITEMS: ItemDef[] = [
   { type: 'bedside', name: 'Bedside table', category: 'Bedroom', width: 450, depth: 400, height: 550, color: WOOD },
   { type: 'wardrobe', name: 'Wardrobe (sliding)', category: 'Bedroom', width: 2400, depth: 600, height: 2400, color: WHITE },
   { type: 'wardrobe_hinged', name: 'Wardrobe (hinged)', category: 'Bedroom', width: 1200, depth: 600, height: 2100, color: WOOD },
+  { type: 'linen', name: 'Linen cupboard', category: 'Storage', width: 900, depth: 600, height: 2400, color: WHITE },
   { type: 'walkin_shelving', name: 'Walk-in robe shelving', category: 'Bedroom', width: 1800, depth: 450, height: 2100, color: WHITE },
   { type: 'dresser', name: 'Chest of drawers', category: 'Bedroom', width: 1200, depth: 500, height: 850, color: WOOD },
   { type: 'cot', name: 'Cot', category: 'Bedroom', width: 750, depth: 1350, height: 900, color: WHITE },

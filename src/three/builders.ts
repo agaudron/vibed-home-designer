@@ -509,6 +509,7 @@ export function buildItem(it: Item, m: MatFn, ctx: ItemContext = {}): THREE.Grou
       }
       break;
     }
+    case 'linen':
     case 'wardrobe_hinged': {
       b.box(w, h - 80, d - 20, 0, 80, -10, color);
       b.box(w - 20, 80, d - 60, 0, 0, -30, shade(color, 0.6));

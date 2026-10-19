@@ -38,6 +38,7 @@ import {
   dressingSide,
   dot,
   effectiveDoor,
+  doubleDoorSize,
   uid,
 } from '../geometry';
 import { store, useStore } from '../store';
@@ -112,6 +113,8 @@ interface DragState {
 }
 
 const PX_TOL = 10;
+/** Openings that get their size written on them (interior doors, with showDoorSizes). */
+const DOOR_SIZE_KINDS = new Set(['door', 'double_door', 'cavity_door', 'sliding_door', 'stacker_door']);
 /** Bigger tolerance for fingers. */
 const TOUCH_TOL = 18;
 
@@ -1116,9 +1119,34 @@ export default function PlanView() {
         <line x1={-hw} y1={-ht} x2={-hw} y2={ht} className="jamb" />
         <line x1={hw} y1={-ht} x2={hw} y2={ht} className="jamb" />
         {parts}
+        {!ghost && doorSizeLabel(o, w, f.angle)}
       </g>
     );
   };
+
+  /** Interior doors (with the setting on): the door size written in the doorway, e.g. "820" or "2 × 720". */
+  function doorSizeLabel(o: Opening, w: Wall, angle: number): ReactNode {
+    if (!design.settings.showDoorSizes || !DOOR_SIZE_KINDS.has(o.kind)) return null;
+    const sd = exteriorSides(design.walls).map.get(w.id);
+    if (sd?.pos || sd?.neg) return null; // outside doors aren't interior doors
+    const size = o.kind === 'double_door' ? `2 × ${Math.round(doubleDoorSize(o.width))}` : `${Math.round(o.width)}`;
+    const label = o.height !== design.settings.doorHeight ? `${size} × ${Math.round(o.height)}` : size;
+    const fz = px(10);
+    const lw = label.length * fz * 0.6 + px(6);
+    // Keep the text upright whichever way the wall runs.
+    let a = deg(angle);
+    const flip = a > 90.01 || a < -89.99;
+    a = flip ? 180 : 0;
+    return (
+      <g className="door-size" transform={`rotate(${a})`}>
+        <title>{`${o.kind === 'double_door' ? `Two ${Math.round(doubleDoorSize(o.width))} doors` : `${Math.round(o.width)} door`}, ${Math.round(o.height)} high`}</title>
+        <rect x={-lw / 2} y={-fz * 0.7} width={lw} height={fz * 1.4} rx={px(3)} />
+        <text x={0} y={0} fontSize={fz} textAnchor="middle" dominantBaseline="central">
+          {label}
+        </text>
+      </g>
+    );
+  }
 
   const renderItem = (it: Item, ghost = false) => {
     const sel = isSel('item', it.id);
