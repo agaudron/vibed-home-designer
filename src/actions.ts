@@ -105,6 +105,8 @@ export function deleteSelection() {
         return { ...d, garden: { ...gardenOf(d), areas: gardenOf(d).areas.filter((a) => a.id !== s.id) } };
       case 'garden-item':
         return { ...d, garden: { ...gardenOf(d), items: gardenOf(d).items.filter((i) => i.id !== s.id) } };
+      case 'garden-level':
+        return { ...d, garden: { ...gardenOf(d), terrain: { ...(gardenOf(d).terrain ?? { levels: [] }), levels: (gardenOf(d).terrain?.levels ?? []).filter((l) => l.id !== s.id) } } };
       case 'facade':
         return d;
     }
@@ -190,6 +192,7 @@ export function nudgeSelection(dx: number, dy: number) {
     if (s.kind === 'room') return { ...d, rooms: d.rooms.map((r) => (r.id === s.id ? { ...r, points: r.points.map((p) => add(p, dv)) } : r)) };
     if (s.kind === 'electric') return { ...d, electrical: d.electrical.map((e) => (e.id === s.id ? { ...e, x: e.x + dx, y: e.y + dy } : e)) };
     if (s.kind === 'garden-item') return { ...d, garden: { ...gardenOf(d), items: gardenOf(d).items.map((i) => (i.id === s.id ? { ...i, x: i.x + dx, y: i.y + dy } : i)) } };
+    if (s.kind === 'garden-level') return { ...d, garden: { ...gardenOf(d), terrain: { ...(gardenOf(d).terrain ?? { levels: [] }), levels: (gardenOf(d).terrain?.levels ?? []).map((l) => (l.id === s.id ? { ...l, x: l.x + dx, y: l.y + dy } : l)) } } };
     if (s.kind === 'garden-area' || s.kind === 'block') {
       const id = s.kind === 'block' ? 'block' : s.id;
       const g = gardenOf(d);

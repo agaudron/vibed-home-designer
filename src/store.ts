@@ -289,8 +289,8 @@ class Store {
       if (!d.garden?.block) this.state = { ...this.state, selection: null };
       return;
     }
-    if (s.kind === 'garden-area' || s.kind === 'garden-item') {
-      const gl: { id: string }[] = (s.kind === 'garden-area' ? d.garden?.areas : d.garden?.items) ?? [];
+    if (s.kind === 'garden-area' || s.kind === 'garden-item' || s.kind === 'garden-level') {
+      const gl: { id: string }[] = (s.kind === 'garden-area' ? d.garden?.areas : s.kind === 'garden-item' ? d.garden?.items : d.garden?.terrain?.levels) ?? [];
       if (!gl.some((e) => e.id === s.id)) this.state = { ...this.state, selection: null };
       return;
     }

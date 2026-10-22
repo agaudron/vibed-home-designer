@@ -22,11 +22,13 @@ import {
   EDGINGS,
 } from '../garden';
 import type { GardenGroup, GardenSpec } from '../garden';
-import { addDriveway, addFrontPath, closeGarden, createBlock, generateYards, updateGarden } from '../gardenActions';
+import { addDriveway, addFrontPath, applySlope, closeGarden, createBlock, flattenLand, generateYards, updateGarden, updateTerrain } from '../gardenActions';
+import { autoInterval, cutAndFill, formatLevel, groundOf, padMarginOf, padOn, SLOPES } from '../terrain';
+import type { SlopeDir } from '../terrain';
 import { dist, formatArea, polygonArea } from '../geometry';
 import { store, useStore } from '../store';
 import type { FenceType, GardenAreaKind } from '../types';
-import { NumField } from './Fields';
+import { NumField, Toggle } from './Fields';
 
 const DRAW_KINDS: GardenAreaKind[] = ['lawn', 'bed', 'veggie', 'driveway', 'path', 'paving', 'gravel'];
 const GROWTH = [
@@ -52,6 +54,11 @@ export default function GardenDesigner() {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<Record<string, boolean>>({ native: true, tree: true, veg: false, raised: true, letterbox: false, feature: false });
   const [redo, setRedo] = useState(false);
+  const [slope, setSlope] = useState<SlopeDir>('up');
+  const [fall, setFall] = useState(1500);
+  const land = groundOf(design);
+  const earthworks = useMemo(() => (land && padOn(g) ? cutAndFill(design, land) : null), [land, g, design]);
+  const levels = g.terrain?.levels ?? [];
 
   const groups = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -178,9 +185,61 @@ export default function GardenDesigner() {
           )}
         </div>
 
+        {/* ---- Land levels ---- */}
+        <div className="kd-section">
+          <div className="kd-label">
+            2. Land levels <span>{land ? `${formatLevel(land.min)} to ${formatLevel(land.max)}` : 'Flat'}</span>
+          </div>
+          <p className="note">Heights are from the ground at the house (0). Pick a slope, or add spot levels from a survey and type each one's height.</p>
+          <div className="presets kd-profiles">
+            {SLOPES.map((sl) => (
+              <button key={sl.id} className={slope === sl.id ? 'on' : ''} onClick={() => setSlope(sl.id)} title={sl.hint}>
+                {sl.name}
+              </button>
+            ))}
+          </div>
+          <NumField label="Fall" value={fall} min={0} max={30000} onChange={setFall} hint="Height difference from one side of the block to the other" />
+          <div className="presets">
+            <button className="primary" onClick={() => applySlope(slope, fall)} disabled={!g.block} title={g.block ? 'Set levels at the corners of the block for this slope' : 'Set out the block first'}>
+              Apply slope
+            </button>
+            <button className={tool.kind === 'garden-level' ? 'on' : ''} onClick={() => store.setTool({ kind: 'garden-level' })} title="Click in the plan to add a spot level">
+              ＋ Spot level
+            </button>
+            {levels.length > 0 && <button onClick={flattenLand}>Make flat</button>}
+          </div>
+          {land && (
+            <>
+              <p className="note">
+                Fall across the site {((land.max - land.min) / 1000).toFixed(2)} m · {levels.length} spot level{levels.length === 1 ? '' : 's'}. Drag a level to move it; select it to change its height.
+              </p>
+              <Toggle label="Level a flat pad for the house" value={padOn(g)} onChange={(on) => updateTerrain((t) => ({ ...t, pad: on }))} />
+              {padOn(g) && <NumField label="Pad past house" value={padMarginOf(g)} min={0} max={10000} onChange={(m) => updateTerrain((t) => ({ ...t, padMargin: m }))} hint="Flat ground round the house before it blends back to the natural slope (over 3 m)" />}
+              {earthworks && (earthworks.cut > 0.05 || earthworks.fill > 0.05) && (
+                <p className="note">
+                  Earthworks for the pad (rough): cut {earthworks.cut.toFixed(1)} m³, fill {earthworks.fill.toFixed(1)} m³. Big level changes may need retaining walls and engineering: check with your builder and council.
+                </p>
+              )}
+              <label className="field">
+                <span className="field-label">Contours every</span>
+                <span className="field-control">
+                  <select value={g.terrain?.contour ?? 0} onChange={(e) => updateTerrain((t) => ({ ...t, contour: Number(e.target.value) || undefined }))}>
+                    <option value={0}>Auto ({autoInterval(land.max - land.min)} mm)</option>
+                    {[100, 250, 500, 1000].map((i) => (
+                      <option key={i} value={i}>
+                        {i} mm
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </label>
+            </>
+          )}
+        </div>
+
         {/* ---- Yards ---- */}
         <div className="kd-section">
-          <div className="kd-label">2. Front, back & side yards</div>
+          <div className="kd-label">3. Front, back & side yards</div>
           <button onClick={generateYards} disabled={!g.block} title={g.block ? 'Cut the block into yards round the house' : 'Set out the block first'}>
             {yards.length ? 'Remake yards' : 'Make yards'}
           </button>
@@ -205,7 +264,7 @@ export default function GardenDesigner() {
         {/* ---- Areas ---- */}
         <div className="kd-section">
           <div className="kd-label">
-            3. Garden areas <span>{AREA_KINDS[kind].name}</span>
+            4. Garden areas <span>{AREA_KINDS[kind].name}</span>
           </div>
           <div className="presets kd-profiles garden-kinds">
             {DRAW_KINDS.map((k) => (
@@ -261,7 +320,7 @@ export default function GardenDesigner() {
         {/* ---- Plants & features ---- */}
         <div className="kd-section">
           <div className="kd-label">
-            4. Plants & features <span>{GROWTH.find((x) => Math.abs(x.k - growth) < 0.05)?.name ?? `${Math.round(growth * 100)}% grown`}</span>
+            5. Plants & features <span>{GROWTH.find((x) => Math.abs(x.k - growth) < 0.05)?.name ?? `${Math.round(growth * 100)}% grown`}</span>
           </div>
           <div className="presets" title="How big plants are drawn">
             {GROWTH.map((x) => (

@@ -62,7 +62,8 @@ import { ELEC_MAP, elecPlacement, linkRefFor, litLights, newElecPoint, productOf
 import { flickSwitch, startLinking, toggleLink } from '../elecActions';
 import { GardenGround, GardenTop, gardenHandles } from './garden';
 import { AREA_KINDS, frontDirection, gardenOf, isPlant, newGardenItem, outlineOf, outwardNormal, shapeAt, shownScale, smoothOutline, specOf } from '../garden';
-import { addArea, editOutline, outlinePointsOf, updateGarden } from '../gardenActions';
+import { addArea, editOutline, newLevel, outlinePointsOf, updateGarden, updateTerrain } from '../gardenActions';
+import { formatLevel, groundOf } from '../terrain';
 import { useMobile, useTouch } from '../mobile';
 
 interface View {
@@ -94,7 +95,8 @@ type Drag =
   | { kind: 'garden-rotate'; id: string }
   | { kind: 'garden-resize'; id: string; orig: GardenItem }
   | { kind: 'garden-outline'; id: string; start: Vec; orig: Vec[] }
-  | { kind: 'garden-vertex'; id: string; index: number };
+  | { kind: 'garden-vertex'; id: string; index: number }
+  | { kind: 'garden-level'; id: string; off: Vec };
 
 /** Board-line pattern for a floor: its direction and the spacing (board width, or tile width plus grout). */
 function boardPattern(fl: ReturnType<typeof floorOf>) {
@@ -311,7 +313,10 @@ export default function PlanView() {
     return shapeAt(tool.shape, v(roundTo(p.x, step), roundTo(p.y, step)));
   };
 
+  const computeGhostLevel = (p: Vec | null) => (tool.kind === 'garden-level' && p ? { ...newLevel(design, p), id: '__ghost' } : null);
+
   const snap = computeSnap(mouse, mods.shift);
+  const ghostLevel = computeGhostLevel(mouse);
   const ghostGarden = computeGhostGarden(mouse, mods.shift);
   const ghostShape = computeGhostShape(mouse, mods.shift);
   const ghostItem = computeGhostItem(mouse, mods.shift);
@@ -626,6 +631,12 @@ export default function PlanView() {
         }
         return;
       }
+      case 'garden-level': {
+        // Spot levels: keep placing (a block usually needs several); select one afterwards to type its height.
+        const l = newLevel(store.state.design, p);
+        updateTerrain((t) => ({ ...t, levels: [...t.levels, l] }));
+        return;
+      }
       case 'elec-link': {
         // Click lights to add them to (or take them off) the switch's gang; click another switch to link that one.
         const el = (e.target as Element).closest('[data-kind="electric"]') as SVGElement | null;
@@ -708,6 +719,12 @@ export default function PlanView() {
       const ex = d.roof?.extensions?.find((x) => x.id === id);
       store.select({ kind: 'roof', id });
       if (ex) beginDrag(e, { kind: 'roof-ext', id, start: p, orig: ex });
+      return;
+    }
+    if (kind === 'garden-level') {
+      const l = gardenOf(d).terrain?.levels.find((x) => x.id === id);
+      store.select({ kind: 'garden-level', id });
+      if (l) beginDrag(e, { kind: 'garden-level', id, off: sub(p, v(l.x, l.y)) });
       return;
     }
     if (kind === 'garden-item') {
@@ -941,6 +958,17 @@ export default function PlanView() {
         const step = free ? 1 : Math.min(grid, 50);
         const at = sub(p, drag.off);
         applyDrag((dd) => ({ ...dd, garden: { ...gardenOf(dd), items: gardenOf(dd).items.map((x) => (x.id === drag.id ? { ...x, x: roundTo(at.x, step), y: roundTo(at.y, step) } : x)) } }));
+        break;
+      }
+      case 'garden-level': {
+        // Moving a level keeps its height (the ground reshapes round it).
+        const step = free ? 1 : Math.min(grid, 50);
+        const at = sub(p, drag.off);
+        applyDrag((dd) => {
+          const g = gardenOf(dd);
+          const t = g.terrain ?? { levels: [] };
+          return { ...dd, garden: { ...g, terrain: { ...t, levels: t.levels.map((l) => (l.id === drag.id ? { ...l, x: roundTo(at.x, step), y: roundTo(at.y, step) } : l)) } } };
+        });
         break;
       }
       case 'garden-rotate': {
@@ -1782,7 +1810,7 @@ export default function PlanView() {
               );
             })}
           </g>
-          <GardenTop design={design} px={px} selection={selection} editing={gardenOpen} ghost={ghostGarden} />
+          <GardenTop design={design} px={px} selection={selection} editing={gardenOpen} ghost={ghostGarden} ghostLevel={ghostLevel} />
           <g className="items low">{itemsSorted.filter((i) => i.elevation <= 0).map((i) => renderItem(i))}</g>
           <g className="walls">{wallEls}</g>
           <g className="openings">
@@ -1885,7 +1913,7 @@ export default function PlanView() {
           onCancel={() => setLengthEdit(null)}
         />
       )}
-      <PlanHud tool={tool.kind} chainLen={chain.length} typed={typed} mouse={snap?.p ?? mouse} snapKind={snap?.kind} />
+      <PlanHud tool={tool.kind} chainLen={chain.length} typed={typed} mouse={snap?.p ?? mouse} snapKind={snap?.kind} level={gardenOpen && mouse ? groundOf(design)?.at(snap?.p ?? mouse) : undefined} />
       {mobile && tool.kind !== 'select' && (
         // Phones: what Enter / Esc / right-click do on a computer.
         <div className="plan-actions">
@@ -1945,6 +1973,7 @@ const HINTS: Record<string, string[]> = {
   'elec-link': ['Click lights to add them to this switch, click again to take them off', 'Fans with a light: switches link the light, fan controllers the fan', 'Click another switch to link that one instead', 'Esc or right-click when done'],
   'garden-area': ['Click each corner · click the first point, Enter or double-click to finish', 'Backspace removes the last point · Shift = no snapping', 'Ready-made shapes: click to drop one'],
   'garden-item': ['Click to place · plants keep planting until Esc or right-click', 'Shift = no snapping · Ctrl+click to keep placing other features'],
+  'garden-level': ['Click to add a spot level (it starts at the ground height there)', 'Then select it and type its height · Esc or right-click when done'],
 };
 
 /** Short hints for touch screens (shown above the Done button). */
@@ -1959,9 +1988,10 @@ const TOUCH_HINTS: Record<string, string> = {
   'elec-link': 'Tap lights to add or take them off',
   'garden-area': 'Tap each corner, or tap to drop a shape',
   'garden-item': 'Tap where it goes',
+  'garden-level': 'Tap to add a spot level',
 };
 
-function PlanHud(props: { tool: string; chainLen: number; typed: string; mouse: Vec | null; snapKind?: string }) {
+function PlanHud(props: { tool: string; chainLen: number; typed: string; mouse: Vec | null; snapKind?: string; level?: number }) {
   return (
     <div className="plan-hud">
       {(HINTS[props.tool] ?? []).map((h) => (
@@ -1971,6 +2001,7 @@ function PlanHud(props: { tool: string; chainLen: number; typed: string; mouse: 
       {props.mouse && (
         <div className="coords">
           x {Math.round(props.mouse.x)} · y {Math.round(props.mouse.y)} mm{props.snapKind && props.snapKind !== 'free' ? ` · ${props.snapKind}` : ''}
+          {props.level !== undefined ? ` · ground ${formatLevel(props.level)}` : ''}
         </div>
       )}
     </div>

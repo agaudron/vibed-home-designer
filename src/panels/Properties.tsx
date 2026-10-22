@@ -16,7 +16,7 @@ import { exteriorSides, FINISHES } from '../facade';
 import { generateRoof } from '../roof';
 import FacadeEditor from './FacadeEditor';
 import ElectricProps from './ElectricProps';
-import { AreaProps, BlockProps, GardenItemProps } from './GardenProps';
+import { AreaProps, BlockProps, GardenItemProps, LevelProps } from './GardenProps';
 import { gardenOf, houseFootprint } from '../garden';
 import { floorLevelOf } from '../levels';
 import { outdoorOpts } from '../outdoor';
@@ -75,6 +75,9 @@ export default function Properties() {
   } else if (sel?.kind === 'garden-item') {
     const it = gardenOf(design).items.find((x) => x.id === sel.id);
     if (it) body = <GardenItemProps it={it} />;
+  } else if (sel?.kind === 'garden-level') {
+    const l = gardenOf(design).terrain?.levels.find((x) => x.id === sel.id);
+    if (l) body = <LevelProps l={l} />;
   } else if (sel?.kind === 'dimension') {
     const m = design.dimensions.find((x) => x.id === sel.id);
     if (m)

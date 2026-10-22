@@ -778,5 +778,15 @@ export function normaliseGarden(raw: unknown): Garden | undefined {
         ...(i.options && typeof i.options === 'object' ? { options: { ...i.options } } : {}),
       };
     });
-  return { block, areas, items, ...(typeof r.growth === 'number' ? { growth: r.growth } : {}) };
+  const t = r.terrain;
+  const terrain =
+    t && typeof t === 'object' && Array.isArray(t.levels)
+      ? {
+          levels: t.levels.filter((l: any) => l && typeof l === 'object').map((l: any) => ({ id: String(l.id), x: num(l.x, 0), y: num(l.y, 0), z: num(l.z, 0) })),
+          ...(t.pad === false ? { pad: false } : {}),
+          ...(typeof t.padMargin === 'number' ? { padMargin: t.padMargin } : {}),
+          ...(typeof t.contour === 'number' && t.contour > 0 ? { contour: t.contour } : {}),
+        }
+      : undefined;
+  return { block, areas, items, ...(typeof r.growth === 'number' ? { growth: r.growth } : {}), ...(terrain ? { terrain } : {}) };
 }

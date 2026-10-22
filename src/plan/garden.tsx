@@ -1,9 +1,11 @@
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { BED_TIMBERS, cropLayout, EDGINGS, fenceOf, fenceRuns, gardenOf, isPlant, outlineOf, outwardNormal, shownScale, specOf, streetStrip, surfaceOf } from '../garden';
 import type { GardenSpec } from '../garden';
 import { EDGES } from '../outdoor';
 import { add, deg, dist, formatArea, mul, polygonArea, polygonCentroid, rad, rot, sub, v } from '../geometry';
-import type { Design, GardenArea, GardenItem, Selection, Vec } from '../types';
+import { autoInterval, boundsOf, contourLines, formatLevel, groundOf } from '../terrain';
+import type { Design, GardenArea, GardenItem, Selection, SpotLevel, Vec } from '../types';
 
 /**
  * The garden in the 2D plan: the block of land, yards and garden areas under the house (GardenGround), and the
@@ -125,10 +127,70 @@ export function GardenGround(props: { design: Design; px: (n: number) => number;
           </g>
         );
       })}
+      <Contours design={design} px={px} />
       {props.ghost && <polygon points={pts(props.ghost)} className="garden-ghost-area" />}
     </g>
   );
 }
+
+/** Contour lines over the block, every `interval` mm, with a heavier line and a label every fifth one. */
+function Contours({ design, px }: { design: Design; px: (n: number) => number }) {
+  const g = gardenOf(design);
+  const ground = groundOf(design);
+  const interval = ground ? (g.terrain?.contour ?? autoInterval(ground.max - ground.min)) : 0;
+  const lines = useMemo(() => (ground ? contourLines(ground, boundsOf(design, g), interval) : []), [ground, interval, g, design]);
+  if (!ground || !lines.length) return null;
+  const clip = g.block ? 'url(#garden-clip)' : undefined;
+  return (
+    <g className="garden-contours" clipPath={clip}>
+      {g.block && (
+        <clipPath id="garden-clip">
+          <polygon points={pts(g.block.points)} />
+        </clipPath>
+      )}
+      {lines.map(({ z, segs }) => {
+        const major = Math.round(z / interval) % 5 === 0;
+        const d = segs.map(([a, b]) => `M${a.x} ${a.y}L${b.x} ${b.y}`).join('');
+        const [a, b] = segs[Math.floor(segs.length / 2)];
+        const m = mul(add(a, b), 0.5);
+        let ang = deg(Math.atan2(b.y - a.y, b.x - a.x));
+        if (ang > 90.01 || ang < -89.99) ang += 180;
+        return (
+          <g key={z}>
+            <path d={d} className={major ? 'major' : undefined} strokeWidth={px(major ? 1.6 : 0.9)} />
+            {(major || lines.length <= 8) && (
+              <text x={m.x} y={m.y} fontSize={px(9.5)} textAnchor="middle" dominantBaseline="middle" transform={`rotate(${ang} ${m.x} ${m.y})`} strokeWidth={px(3)}>
+                {formatLevel(z)}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+/** A spot level: a survey cross with its height. */
+export function LevelMarker({ l, px, selected, editing, ghost }: { l: SpotLevel; px: (n: number) => number; selected: boolean; editing: boolean; ghost?: boolean }) {
+  const r = px(6);
+  return (
+    <g
+      transform={`translate(${l.x} ${l.y})`}
+      className={`garden-level${selected ? ' selected' : ''}${ghost ? ' ghost' : ''}`}
+      data-kind={editing && !ghost ? 'garden-level' : undefined}
+      data-id={l.id}
+    >
+      <title>{`Ground level ${formatLevel(l.z)} (from the ground at the house)${editing ? ' — drag to move' : ''}`}</title>
+      <circle r={r * 1.6} className="hit" />
+      <circle r={r} strokeWidth={px(1.5)} />
+      <path d={`M${-r * 1.5} 0H${r * 1.5}M0 ${-r * 1.5}V${r * 1.5}`} strokeWidth={px(1.2)} />
+      <text x={r * 1.8} y={-r * 0.6} fontSize={px(10.5)} strokeWidth={px(3)}>
+        {formatLevel(l.z)}
+      </text>
+    </g>
+  );
+}
+
 
 /** The street in front of the block: a grass verge with a footpath, then the road. */
 function Street({ s }: { s: { a: Vec; b: Vec; n: Vec } }) {
@@ -153,7 +215,7 @@ function Street({ s }: { s: { a: Vec; b: Vec; n: Vec } }) {
   );
 }
 
-export function GardenTop(props: { design: Design; px: (n: number) => number; selection: Selection | null; editing: boolean; ghost: GardenItem | null }) {
+export function GardenTop(props: { design: Design; px: (n: number) => number; selection: Selection | null; editing: boolean; ghost: GardenItem | null; ghostLevel: SpotLevel | null }) {
   const { design, px, selection, editing } = props;
   const g = gardenOf(design);
   const fs = px(11);
@@ -216,6 +278,15 @@ export function GardenTop(props: { design: Design; px: (n: number) => number; se
         {props.ghost && <GardenItemSymbol it={props.ghost} scale={shownScale(g, props.ghost)} selected={false} editing={false} px={px} ghost />}
       </g>
       {labels}
+      {/* Spot levels show while the garden designer is open. */}
+      {editing && (
+        <g className="garden-levels">
+          {(g.terrain?.levels ?? []).map((l) => (
+            <LevelMarker key={l.id} l={l} px={px} selected={selection?.kind === 'garden-level' && selection.id === l.id} editing={editing} />
+          ))}
+          {props.ghostLevel && <LevelMarker l={props.ghostLevel} px={px} selected={false} editing={false} ghost />}
+        </g>
+      )}
     </g>
   );
 }

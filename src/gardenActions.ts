@@ -1,11 +1,13 @@
 import { blockAroundHouse, drivewayFromGarage, gardenOf, insertPoint, makeYards, newArea, pathFromFrontDoor, removePoint, toggleSharp, withBlockPoints } from './garden';
 import { add, uid } from './geometry';
 import { store } from './store';
-import type { Block, Design, Garden, GardenArea, GardenAreaKind, GardenItem, Vec } from './types';
+import { groundOf, slopeLevels } from './terrain';
+import type { SlopeDir } from './terrain';
+import type { Block, Design, Garden, GardenArea, GardenAreaKind, GardenItem, SpotLevel, Terrain, Vec } from './types';
 
 /** Garden designer actions (kept out of garden.ts, which the store uses to read saved files). */
 
-const isGardenSel = (kind: string | undefined) => kind === 'block' || kind === 'garden-area' || kind === 'garden-item';
+const isGardenSel = (kind: string | undefined) => kind === 'block' || kind === 'garden-area' || kind === 'garden-item' || kind === 'garden-level';
 
 export function openGarden() {
   store.set({ garden: true, electric: false, lightDemo: null, kitchen: null, hideCatalog: false, tool: { kind: 'select' }, selection: null });
@@ -130,4 +132,36 @@ export function outlinePointsOf(d: Design, id: string): Vec[] {
   const g = gardenOf(d);
   if (id === 'block') return g.block?.points ?? [];
   return g.areas.find((a) => a.id === id)?.points ?? [];
+}
+
+// ---------- land levels ----------
+
+export function updateTerrain(fn: (t: Terrain) => Terrain, record = true) {
+  updateGarden((g) => ({ ...g, terrain: fn(g.terrain ?? { levels: [] }) }), record);
+}
+
+export function updateLevel(id: string, fn: (l: SpotLevel) => SpotLevel) {
+  updateTerrain((t) => ({ ...t, levels: t.levels.map((l) => (l.id === id ? fn(l) : l)) }));
+}
+
+/** A new spot level at p, at the height the ground already is there (so adding one doesn't change anything yet). */
+export function newLevel(d: Design, p: Vec): SpotLevel {
+  const z = groundOf(d)?.natural(p) ?? 0;
+  return { id: uid('lv'), x: Math.round(p.x), y: Math.round(p.y), z: Math.round(z / 10) * 10 };
+}
+
+/** Replace the levels with an even slope across the block. */
+export function applySlope(dir: SlopeDir, fall: number) {
+  const d = store.state.design;
+  const b = gardenOf(d).block;
+  if (!b) {
+    store.flash('Set out the block of land first');
+    return;
+  }
+  updateTerrain((t) => ({ ...t, levels: slopeLevels(d, b, dir, fall) }));
+  store.flash(`Levels set at the ${b.points.length} corners of the block: select one to change it`);
+}
+
+export function flattenLand() {
+  updateTerrain((t) => ({ ...t, levels: [] }));
 }

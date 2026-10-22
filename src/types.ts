@@ -428,15 +428,36 @@ export interface Block {
   street: number;
 }
 
+/** A surveyed ground level: height (mm) relative to the ground at the house (0). */
+export interface SpotLevel {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** The lie of the land: spot levels the ground is shaped through, and how it's levelled round the house. */
+export interface Terrain {
+  levels: SpotLevel[];
+  /** Level a flat pad round the house (cut and fill); default on. */
+  pad?: boolean;
+  /** How far the pad reaches past the house (mm) before blending back to the natural ground; default 1000. */
+  padMargin?: number;
+  /** Contour interval (mm); unset = picked to suit the fall. */
+  contour?: number;
+}
+
 export interface Garden {
   block: Block | null;
   areas: GardenArea[];
   items: GardenItem[];
+  /** Ground levels; unset or no levels = flat. */
+  terrain?: Terrain;
   /** How grown plants are drawn: 0.3 = just planted … 1 = fully grown. Unset = fully grown. */
   growth?: number;
 }
 
-export type EntityKind = 'wall' | 'opening' | 'item' | 'room' | 'dimension' | 'roof' | 'facade' | 'electric' | 'block' | 'garden-area' | 'garden-item';
+export type EntityKind = 'wall' | 'opening' | 'item' | 'room' | 'dimension' | 'roof' | 'facade' | 'electric' | 'block' | 'garden-area' | 'garden-item' | 'garden-level';
 
 export interface Selection {
   kind: EntityKind;
@@ -459,6 +480,7 @@ export type Tool =
    * place a plant or feature.
    */
   | { kind: 'garden-area'; area: GardenAreaKind | 'block'; curved?: boolean; shape?: string }
-  | { kind: 'garden-item'; itemType: string };
+  | { kind: 'garden-item'; itemType: string }
+  | { kind: 'garden-level' };
 
 export type ViewMode = '2d' | 'split' | '3d';

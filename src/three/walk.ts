@@ -1,7 +1,8 @@
 import { add, pointInPolygon, clampOpeningOffset, dot, effectiveOpenings, sidelights, mul, polygonArea, polygonCentroid, rad, rot, sub, v, wallExtensions, wallFrame, wallSpans } from '../geometry';
 import { exteriorSides } from '../facade';
 import type { Design, Item, Vec, Wall } from '../types';
-import { floorLevelOf, itemBase } from '../levels';
+import { floorLevelOf, insideHouse, itemBase } from '../levels';
+import { groundOf } from '../terrain';
 import { verandaFloor } from '../outdoor';
 import { localCorners } from '../shape';
 
@@ -43,6 +44,8 @@ export interface WalkWorld {
   surfaces: Surface[];
   /** Height of the ground outside (0, or below the house floor for a raised house). */
   ground: number;
+  /** Sloping land: the ground height outside the house at p (otherwise it's `ground` everywhere). */
+  groundAt?: (p: Vec) => number;
 }
 
 const worldCache = new WeakMap<Design, WalkWorld>();
@@ -91,7 +94,8 @@ export function walkWorld(d: Design): WalkWorld {
     const r = rad(it.rotation);
     boxes.push({ c: v(it.x, it.y), u: v(Math.cos(r), Math.sin(r)), hl: it.width / 2, hw: it.depth / 2 });
   }
-  const world = { boxes, surfaces, ground };
+  const land = groundOf(d);
+  const world: WalkWorld = { boxes, surfaces, ground, ...(land ? { groundAt: (p: Vec) => (insideHouse(d, p) ? ground : ground + land.at(p)) } : {}) };
   worldCache.set(d, world);
   return world;
 }
@@ -118,7 +122,7 @@ function surfaceOf(it: Item, at: number): Surface | null {
 
 /** Height of the floor you'd stand on at p (0 = house floor; the ground outside may be lower). */
 export function floorAt(world: WalkWorld, p: Vec): number {
-  let h = world.ground;
+  let h = world.groundAt ? world.groundAt(p) : world.ground;
   for (const s of world.surfaces) {
     const l = rot(sub(p, s.c), -s.rot);
     if (Math.abs(l.x) <= s.hw && Math.abs(l.y) <= s.hd && (!s.poly || pointInPolygon(l, s.poly))) h = Math.max(h, s.height(l));

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { AREA_KINDS, BED_TIMBERS, cropLayout, EDGINGS, fenceOf, fenceRuns, gardenOf, isPlant, outlineOf, shownScale, specOf, streetStrip, surfaceOf } from '../garden';
+import { AREA_KINDS, BED_TIMBERS, cropLayout, EDGINGS, fenceOf, fenceRuns, gardenLocal, gardenOf, isPlant, outlineOf, shownScale, specOf, streetStrip, surfaceOf } from '../garden';
+import { groundOf } from '../terrain';
 import type { GardenSpec, SurfaceTexture } from '../garden';
 import { featureColor, shade } from '../plan/garden';
-import { add, dist, mul, sub } from '../geometry';
+import { add, dist, mul, sub, v } from '../geometry';
 import { floorLevelOf } from '../levels';
 import type { Design, GardenArea, GardenItem, Selection, Vec } from '../types';
 import type { MatFn } from './builders';
@@ -220,28 +221,113 @@ function run(a: Vec, b: Vec, y0: number, h: number, t: number, mat: THREE.Materi
   return mesh;
 }
 
+/**
+ * An outline draped over the ground: its triangles are split until no side is longer than `maxEdge`, then each
+ * corner is lifted to the ground height there (plus y). Normals follow the slope; UVs are plan mm.
+ */
+function drape(p: Vec[], h: (q: Vec) => number, y: number, mat: THREE.Material, maxEdge = 700): THREE.Mesh {
+  const shape = new THREE.ShapeGeometry(toShape(p));
+  shape.rotateX(-Math.PI / 2);
+  const src = (shape.index ? shape.toNonIndexed() : shape).getAttribute('position');
+  const memo = new Map<string, number>();
+  const H = (x: number, z: number) => {
+    const k = `${Math.round(x)},${Math.round(z)}`;
+    let r = memo.get(k);
+    if (r === undefined) memo.set(k, (r = h(v(x, z))));
+    return r;
+  };
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const uv: number[] = [];
+  const put = (x: number, z: number) => {
+    pos.push(x, y + H(x, z), z);
+    // Slope from the height either side.
+    const e = 150;
+    const n = new THREE.Vector3(-(H(x + e, z) - H(x - e, z)) / (2 * e), 1, -(H(x, z + e) - H(x, z - e)) / (2 * e)).normalize();
+    nrm.push(n.x, n.y, n.z);
+    uv.push(x, -z);
+  };
+  type P = [number, number];
+  const tri = (a: P, b: P, c: P, depth: number) => {
+    const l = (q: P, r: P) => Math.hypot(q[0] - r[0], q[1] - r[1]);
+    if (depth < 9 && Math.max(l(a, b), l(b, c), l(c, a)) > maxEdge) {
+      const ab: P = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const bc: P = [(b[0] + c[0]) / 2, (b[1] + c[1]) / 2];
+      const ca: P = [(c[0] + a[0]) / 2, (c[1] + a[1]) / 2];
+      tri(a, ab, ca, depth + 1);
+      tri(ab, b, bc, depth + 1);
+      tri(ca, bc, c, depth + 1);
+      tri(ab, bc, ca, depth + 1);
+      return;
+    }
+    put(a[0], a[1]);
+    put(b[0], b[1]);
+    put(c[0], c[1]);
+  };
+  for (let i = 0; i < src.count; i += 3) tri([src.getX(i), src.getZ(i)], [src.getX(i + 1), src.getZ(i + 1)], [src.getX(i + 2), src.getZ(i + 2)], 0);
+  shape.dispose();
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/** Split a line into pieces no longer than `max`. */
+function pieces(a: Vec, b: Vec, max: number): [Vec, Vec][] {
+  const n = Math.max(1, Math.ceil(dist(a, b) / max));
+  return Array.from({ length: n }, (_, i) => [add(a, mul(sub(b, a), i / n)), add(a, mul(sub(b, a), (i + 1) / n))] as [Vec, Vec]);
+}
+
+/** Earth showing at the block's edges where the ground is above or below the land round it (like a cut model). */
+function skirt(p: Vec[], h: (q: Vec) => number, top: number, bottom: number): THREE.Mesh {
+  const pos: number[] = [];
+  for (let i = 0; i < p.length; i++)
+    for (const [a, b] of pieces(p[i], p[(i + 1) % p.length], 1000)) {
+      const ya = top + h(a);
+      const yb = top + h(b);
+      pos.push(a.x, bottom, a.y, b.x, bottom, b.y, b.x, yb, b.y, a.x, bottom, a.y, b.x, yb, b.y, a.x, ya, a.y);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: '#7a5f45', roughness: 1, side: THREE.DoubleSide }));
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 // ---------- the garden ----------
 
 export function buildGarden(d: Design, selection: Selection | null, editing: boolean, plain: MatFn, highlight: MatFn): THREE.Group {
   const g = gardenOf(d);
   const out = new THREE.Group();
   const base = -floorLevelOf(d);
+  const ground = groundOf(d);
+  // Ground height (relative to the ground at the house) where things stand: finished, and natural (for the street).
+  const H = (p: Vec) => (ground ? ground.at(p) : 0);
+  const N = (p: Vec) => (ground ? ground.natural(p) : 0);
   const isSel = (kind: string, id: string) => selection?.kind === kind && selection.id === id;
   const pick = (o: THREE.Object3D, kind: string, id: string) => {
     if (editing || kind === 'garden-item') o.userData.sel = { kind, id };
     return o;
   };
+  // With sloping ground the world's ground plane drops to the lowest point, so the land never sinks under it.
+  const groundY = base + Math.min(0, ground?.min ?? 0, ground && g.block ? Math.min(...streetLevels(g.block, N)) : 0) - 2;
+  out.userData.groundY = groundY;
 
   if (g.block) {
     const grass = surfaceTex('grass');
     const blockMat = layer(texMat('#8fb069', grass.t, [1 / grass.size[0], 1 / grass.size[1]], isSel('block', 'block')), 1);
-    out.add(pick(flat(g.block.points, base - 1.4, blockMat), 'block', 'block'));
+    out.add(pick(ground ? drape(g.block.points, H, base - 1.4, blockMat) : flat(g.block.points, base - 1.4, blockMat), 'block', 'block'));
+    if (ground) out.add(skirt(g.block.points, H, base - 1.4, groundY));
     const st = streetStrip(g.block);
-    if (st) out.add(buildStreet(st, base));
-    out.add(buildFences(g, base));
+    if (st) out.add(buildStreet(st, base, ground ? N : null));
+    out.add(buildFences(g, base, H));
   }
 
-  // Yards first (flat), then the other areas as slabs standing a little proud of them.
+  // Yards first (flat on the ground), then the other areas standing a little proud of them.
   for (const a of g.areas) {
     const s = surfaceOf(a);
     const tx = surfaceTex(s.tex, s.tile);
@@ -249,9 +335,13 @@ export function buildGarden(d: Design, selection: Selection | null, editing: boo
     const outline = outlineOf(a);
     if (outline.length < 3) continue;
     const mat = texMat(s.color, tx.t, [1 / tx.size[0], 1 / tx.size[1]], isSel('garden-area', a.id), s.tex === 'concrete' || s.tex === 'pavers' ? 0.8 : 0.95);
-    const mesh = k.rise > 0 ? slab(outline, base - 1, base + k.rise, layer(mat, 3)) : flat(outline, base - 0.8, layer(mat, 2));
+    const mesh = ground
+      ? drape(outline, H, k.rise > 0 ? base + k.rise : base - 0.8, layer(mat, k.rise > 0 ? 3 : 2))
+      : k.rise > 0
+        ? slab(outline, base - 1, base + k.rise, layer(mat, 3))
+        : flat(outline, base - 0.8, layer(mat, 2));
     out.add(pick(mesh, 'garden-area', a.id));
-    if (a.edging && EDGINGS[a.edging] && k.edging) out.add(pick(buildEdging(a, outline, base, isSel('garden-area', a.id) ? highlight : plain), 'garden-area', a.id));
+    if (a.edging && EDGINGS[a.edging] && k.edging) out.add(pick(buildEdging(a, outline, base, H, isSel('garden-area', a.id) ? highlight : plain), 'garden-area', a.id));
   }
 
   for (const it of g.items) {
@@ -259,49 +349,77 @@ export function buildGarden(d: Design, selection: Selection | null, editing: boo
     const obj = buildGardenItem(it, m, isSel('garden-item', it.id));
     const k = shownScale(g, it);
     obj.scale.setScalar(k);
-    obj.position.set(it.x, base, it.y);
+    // Plants grow from the ground at their centre; beds, sheds and so on sit at the lowest corner so they never float.
+    const c = v(it.x, it.y);
+    const y = ground && !isPlant(specOf(it)) ? Math.min(H(c), ...gardenCorners(it, k).map(H)) : H(c);
+    obj.position.set(it.x, base + y, it.y);
     obj.rotation.y = -THREE.MathUtils.degToRad(it.rotation);
     out.add(pick(obj, 'garden-item', it.id));
   }
   return out;
 }
 
-function buildEdging(a: GardenArea, outline: Vec[], base: number, m: MatFn): THREE.Group {
+function gardenCorners(it: GardenItem, k: number): Vec[] {
+  const hw = (it.width * k) / 2;
+  const hd = (it.depth * k) / 2;
+  return [v(-hw, -hd), v(hw, -hd), v(hw, hd), v(-hw, hd)].map((p) => gardenLocal(it, p));
+}
+
+function streetLevels(b: { points: Vec[]; street: number }, N: (p: Vec) => number) {
+  const s = streetStrip(b as Parameters<typeof streetStrip>[0]);
+  if (!s) return [0];
+  return [s.a, s.b].flatMap((p) => [N(p), N(add(p, mul(s.n, 11000)))]);
+}
+
+function buildEdging(a: GardenArea, outline: Vec[], base: number, H: (p: Vec) => number, m: MatFn): THREE.Group {
   const e = EDGINGS[a.edging!];
   const gr = new THREE.Group();
   const mat = m(e.color, { rough: e.width < 20 ? 0.6 : 0.9, metal: e.width < 20 ? 0.3 : 0 });
-  const top = base + Math.max(AREA_KINDS[a.kind].rise + 25, 40);
-  for (let i = 0; i < outline.length; i++) gr.add(run(outline[i], outline[(i + 1) % outline.length], base - 1, top - base + 1, Math.max(e.width, 20), mat));
+  const h = Math.max(AREA_KINDS[a.kind].rise + 25, 40);
+  for (let i = 0; i < outline.length; i++)
+    for (const [p, q] of pieces(outline[i], outline[(i + 1) % outline.length], 800)) {
+      const y = Math.min(H(p), H(q));
+      gr.add(run(p, q, base + y - 1, h + Math.abs(H(p) - H(q)) + 1, Math.max(e.width, 20), mat));
+    }
   return gr;
 }
 
-/** Verge, footpath, kerb and road along the street side, with a dashed centre line. */
-function buildStreet(s: { a: Vec; b: Vec; n: Vec }, base: number): THREE.Group {
+/** Verge, footpath, kerb and road along the street side, with a dashed centre line (on the natural ground). */
+function buildStreet(s: { a: Vec; b: Vec; n: Vec }, base: number, N: ((p: Vec) => number) | null): THREE.Group {
   const gr = new THREE.Group();
   const u = mul(sub(s.b, s.a), 1 / Math.max(1, dist(s.a, s.b)));
   const a = sub(s.a, mul(u, 6000));
   const b = add(s.b, mul(u, 6000));
   const band = (o0: number, o1: number) => [add(a, mul(s.n, o0)), add(b, mul(s.n, o0)), add(b, mul(s.n, o1)), add(a, mul(s.n, o1))];
+  const surf = (p: Vec[], y: number, mat: THREE.Material) => (N ? drape(p, N, y, mat, 1500) : flat(p, y, mat));
+  const H = N ?? (() => 0);
   const grass = surfaceTex('grass');
   const conc = surfaceTex('concrete');
   const asph = surfaceTex('asphalt');
-  gr.add(flat(band(0, 3800), base - 1.2, layer(texMat('#93b06f', grass.t, [1 / 800, 1 / 800], false), 1)));
-  gr.add(flat(band(1400, 2600), base - 0.6, layer(texMat('#c9c5bd', conc.t, [1 / 1500, 1 / 1500], false), 3)));
-  gr.add(flat(band(4000, 11000), base - 1.2, layer(texMat('#4b4b4d', asph.t, [1 / 1500, 1 / 1500], false), 1)));
+  gr.add(surf(band(0, 3800), base - 1.2, layer(texMat('#93b06f', grass.t, [1 / 800, 1 / 800], false), 1)));
+  gr.add(surf(band(1400, 2600), base - 0.6, layer(texMat('#c9c5bd', conc.t, [1 / 1500, 1 / 1500], false), 3)));
+  gr.add(surf(band(4000, 11000), base - 1.2, layer(texMat('#4b4b4d', asph.t, [1 / 1500, 1 / 1500], false), 1)));
   const kerbMat = new THREE.MeshStandardMaterial({ color: '#bdb9b1', roughness: 0.9 });
-  gr.add(run(add(a, mul(s.n, 3900)), add(b, mul(s.n, 3900)), base - 1, 110, 200, kerbMat));
+  for (const [p, q] of pieces(add(a, mul(s.n, 3900)), add(b, mul(s.n, 3900)), N ? 1000 : Infinity)) {
+    const y = Math.min(H(p), H(q));
+    gr.add(run(p, q, base + y - 1, 110 + Math.abs(H(p) - H(q)), 200, kerbMat));
+  }
   const line = layer(new THREE.MeshStandardMaterial({ color: '#f2f2ee', roughness: 0.8 }), 4);
   const L = dist(a, b);
   for (let x = 1000; x + 1500 < L; x += 4500) {
     const p = add(add(a, mul(u, x)), mul(s.n, 7450));
     const q = add(p, mul(u, 1500));
-    gr.add(flat([p, q, add(q, mul(s.n, 100)), add(p, mul(s.n, 100))], base - 0.6, line));
+    gr.add(surf([p, q, add(q, mul(s.n, 100)), add(p, mul(s.n, 100))], base - 0.6, line));
   }
   gr.traverse((o) => (o.castShadow = false));
   return gr;
 }
 
-function buildFences(g: ReturnType<typeof gardenOf>, base: number): THREE.Group {
+/**
+ * Fences, a bay at a time. On sloping ground each bay steps: it sits on the lower end and is taller by the
+ * difference, with posts reaching the higher bay either side (how stepped fences are built).
+ */
+function buildFences(g: ReturnType<typeof gardenOf>, base: number, H: (p: Vec) => number): THREE.Group {
   const gr = new THREE.Group();
   const b = g.block!;
   for (const r of fenceRuns(g)) {
@@ -310,64 +428,99 @@ function buildFences(g: ReturnType<typeof gardenOf>, base: number): THREE.Group 
     const L = dist(r.a, r.b);
     if (L < 50) continue;
     const u = mul(sub(r.b, r.a), 1 / L);
-    const postsAt = (gap: number) => Array.from({ length: Math.floor(L / gap) + 1 }, (_, i) => Math.min(L, i * gap)).concat(L % gap > 100 ? [L] : []);
-    const post = (at: number, w: number, h: number, mat: THREE.Material) => {
-      const p = add(r.a, mul(u, at));
-      gr.add(run(sub(p, mul(u, w / 2)), add(p, mul(u, w / 2)), base, h, w, mat));
+    const bayLen = side.fence === 'colorbond' ? 2365 : side.fence === 'pool' ? 1200 : 2400;
+    const n = Math.max(1, Math.round(L / bayLen));
+    const at = (k: number) => add(r.a, mul(u, (k * L) / n));
+    // Each bay: its ends, where it stands and how much taller it is than the fence height.
+    const bays = Array.from({ length: n }, (_, i) => {
+      const p = at(i);
+      const q = at(i + 1);
+      const lo = Math.min(H(p), H(q));
+      return { p, q, y: base + lo, extra: Math.abs(H(p) - H(q)) };
+    });
+    const top = (i: number) => (bays[i] ? bays[i].y + bays[i].extra + f.height : -Infinity);
+    const post = (k: number, w: number, over: number, mat: THREE.Material) => {
+      const p = at(k);
+      const y = base + H(p);
+      const t = Math.max(top(k - 1), top(k)) + over;
+      gr.add(run(sub(p, mul(u, w / 2)), add(p, mul(u, w / 2)), y, t - y, w, mat));
+    };
+    const posts = (w: number, over: number, mat: THREE.Material) => {
+      for (let k = 0; k <= n; k++) post(k, w, over, mat);
     };
     switch (side.fence) {
       case 'colorbond': {
-        const mat = texMat(f.color, corrugated(), [L / 76, 1], false, 0.5);
-        mat.metalness = 0.2;
-        gr.add(run(r.a, r.b, base, f.height, 30, mat));
         const frame = new THREE.MeshStandardMaterial({ color: shade(f.color, 0.9), roughness: 0.5, metalness: 0.2 });
-        gr.add(run(r.a, r.b, base + f.height - 10, 40, 50, frame));
-        for (const at of postsAt(2365)) post(at, 50, f.height + 30, frame);
+        for (const bay of bays) {
+          const len = dist(bay.p, bay.q);
+          const mat = texMat(f.color, corrugated(), [len / 76, 1], false, 0.5);
+          mat.metalness = 0.2;
+          gr.add(run(bay.p, bay.q, bay.y, f.height + bay.extra, 30, mat));
+          gr.add(run(bay.p, bay.q, bay.y + f.height + bay.extra - 10, 40, 50, frame));
+        }
+        posts(50, 30, frame);
         break;
       }
       case 'paling':
       case 'slat': {
-        const mat = texMat(f.color, boards(side.fence === 'paling' ? 'v' : 'h'), side.fence === 'paling' ? [L / 800, 1] : [1, f.height / 750], false, 0.9);
-        gr.add(run(r.a, r.b, base + 50, f.height - 50, 20, mat));
         const timber = new THREE.MeshStandardMaterial({ color: shade(f.color, 0.75), roughness: 0.9 });
-        for (const at of postsAt(2400)) post(at, 100, f.height, timber);
-        if (side.fence === 'paling') for (const y of [300, f.height - 300]) gr.add(run(r.a, r.b, base + y, 75, 40, timber, 25));
+        for (const bay of bays) {
+          const len = dist(bay.p, bay.q);
+          const h = f.height + bay.extra;
+          const mat = texMat(f.color, boards(side.fence === 'paling' ? 'v' : 'h'), side.fence === 'paling' ? [len / 800, 1] : [1, h / 750], false, 0.9);
+          gr.add(run(bay.p, bay.q, bay.y + 50, h - 50, 20, mat));
+          if (side.fence === 'paling') for (const y of [300 + bay.extra, h - 300]) gr.add(run(bay.p, bay.q, bay.y + y, 75, 40, timber, 25));
+        }
+        posts(100, 0, timber);
         break;
       }
       case 'picket': {
         const mat = new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.7 });
-        const n = Math.floor(L / 130);
-        const picket = new THREE.InstancedMesh(new THREE.BoxGeometry(75, f.height - 50, 20), mat, Math.max(1, n));
+        const count = Math.floor(L / 130);
+        const picket = new THREE.InstancedMesh(new THREE.BoxGeometry(75, f.height - 50, 20), mat, Math.max(1, count));
         const m4 = new THREE.Matrix4();
         const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.atan2(u.y, u.x));
-        for (let i = 0; i < n; i++) {
-          const p = add(r.a, mul(u, (i + 0.5) * (L / n)));
-          m4.compose(new THREE.Vector3(p.x, base + 50 + (f.height - 50) / 2, p.y), q, new THREE.Vector3(1, 1, 1));
+        for (let i = 0; i < count; i++) {
+          // Pickets follow the ground.
+          const p = add(r.a, mul(u, (i + 0.5) * (L / count)));
+          m4.compose(new THREE.Vector3(p.x, base + H(p) + 50 + (f.height - 50) / 2, p.y), q, new THREE.Vector3(1, 1, 1));
           picket.setMatrixAt(i, m4);
         }
         picket.castShadow = true;
         gr.add(picket);
-        for (const y of [250, f.height - 250]) gr.add(run(r.a, r.b, base + y, 70, 35, mat, 25));
-        for (const at of postsAt(2400)) post(at, 90, f.height + 50, mat);
+        for (const bay of bays)
+          for (const y of [250, f.height - 250]) {
+            // Rails run with the slope: a thin box per bay, tilted between its ends.
+            const rail = run(bay.p, bay.q, 0, 70, 35, mat, 25);
+            const ya = base + H(bay.p) + y;
+            const yb = base + H(bay.q) + y;
+            rail.position.y = (ya + yb) / 2 + 35;
+            rail.rotateZ(Math.atan2(yb - ya, dist(bay.p, bay.q)));
+            gr.add(rail);
+          }
+        posts(90, 50, mat);
         break;
       }
       case 'pool': {
         const glass = new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
-        const n = Math.max(1, Math.round(L / 1200));
-        for (let i = 0; i < n; i++) {
-          const a0 = add(r.a, mul(u, (i * L) / n + 25));
-          const a1 = add(r.a, mul(u, ((i + 1) * L) / n - 25));
-          gr.add(run(a0, a1, base + 100, f.height - 100, 12, glass));
+        for (const bay of bays) {
+          const a0 = add(bay.p, mul(u, 25));
+          const a1 = sub(bay.q, mul(u, 25));
+          gr.add(run(a0, a1, bay.y + 100, f.height - 100 + bay.extra, 12, glass));
         }
         const steel = new THREE.MeshStandardMaterial({ color: '#c8cacc', roughness: 0.3, metalness: 0.8 });
-        for (let i = 0; i <= n * 2; i++) post((i * L) / (n * 2), 50, 250, steel);
+        for (const bay of bays)
+          for (const k of [0.25, 0.75]) {
+            const p = add(bay.p, mul(sub(bay.q, bay.p), k));
+            gr.add(run(sub(p, mul(u, 25)), add(p, mul(u, 25)), base + H(p), bay.y - base - H(p) + 250, 50, steel));
+          }
         break;
       }
       case 'rendered': {
         const mat = new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.95 });
-        gr.add(run(r.a, r.b, base, f.height, 200, mat));
+        for (const bay of bays) gr.add(run(bay.p, bay.q, bay.y, f.height + bay.extra, 200, mat));
         const cap = new THREE.MeshStandardMaterial({ color: shade(f.color, 0.85), roughness: 0.9 });
-        for (const at of postsAt(2400)) post(at, 350, f.height + 150, cap);
+        posts(350, 150, cap);
         break;
       }
     }

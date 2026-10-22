@@ -20,11 +20,12 @@ import {
   SURFACES,
   ZINCALUME,
 } from '../garden';
-import { updateArea, updateBlock, updateGardenItem } from '../gardenActions';
+import { updateArea, updateBlock, updateGardenItem, updateLevel } from '../gardenActions';
+import { formatLevel } from '../terrain';
 import { EDGES } from '../outdoor';
 import { add, dist, formatArea, mul, normAngle, polygonArea, sub } from '../geometry';
 import { featureColor } from '../plan/garden';
-import type { Block, FenceType, GardenArea, GardenAreaKind, GardenItem } from '../types';
+import type { Block, FenceType, GardenArea, GardenAreaKind, GardenItem, SpotLevel } from '../types';
 import { ColorField, Field, NumField, TextField, Toggle } from './Fields';
 
 const COLORBOND_HEX = COLORBOND.map((c) => c.hex);
@@ -407,6 +408,31 @@ export function GardenItemProps({ it }: { it: GardenItem }) {
       )}
       {!round && <NumField label="Rotation" value={it.rotation} suffix="°" step={15} onChange={(v) => set((x) => ({ ...x, rotation: normAngle(v) }))} />}
       <Actions />
+    </section>
+  );
+}
+
+// ---------- spot levels ----------
+
+export function LevelProps({ l }: { l: SpotLevel }) {
+  const set = (z: number) => updateLevel(l.id, (x) => ({ ...x, z: Math.round(z) }));
+  return (
+    <section className="prop-section">
+      <h3>Spot level {formatLevel(l.z)}</h3>
+      <NumField label="Height" value={l.z} min={-50000} max={50000} onChange={set} hint="Above (+) or below (−) the ground at the house" />
+      <div className="presets">
+        {[-500, -100, 100, 500].map((dz) => (
+          <button key={dz} onClick={() => set(l.z + dz)}>
+            {dz > 0 ? '+' : '−'}
+            {Math.abs(dz)}
+          </button>
+        ))}
+        <button onClick={() => set(0)} title="Level with the ground at the house">
+          0
+        </button>
+      </div>
+      <p className="note">The ground is shaped through all the spot levels. Drag this one in the plan to move it; it keeps its height.</p>
+      <Actions duplicate={false} />
     </section>
   );
 }

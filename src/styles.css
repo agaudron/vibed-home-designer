@@ -2696,3 +2696,57 @@ svg.plan.panning {
 .garden-designer .kd-section > button {
   width: 100%;
 }
+/* Land levels: contours and spot levels */
+.plan .garden-contours {
+  pointer-events: none;
+}
+.plan .garden-contours path {
+  fill: none;
+  stroke: #8a5a2b;
+  stroke-opacity: 0.45;
+}
+.plan .garden-contours path.major {
+  stroke-opacity: 0.75;
+}
+.plan .garden-contours text {
+  fill: #6b4420;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.85);
+}
+.plan .garden-level {
+  cursor: move;
+}
+.plan .garden-level circle {
+  fill: #fff;
+  stroke: #a3461c;
+}
+.plan .garden-level circle.hit {
+  fill: transparent;
+  stroke: none;
+}
+.plan .garden-level path {
+  stroke: #a3461c;
+}
+.plan .garden-level text {
+  fill: #a3461c;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #fff;
+}
+.plan .garden-level.selected circle:not(.hit) {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+.plan .garden-level.selected path,
+.plan .garden-level.selected text {
+  stroke: var(--accent);
+  fill: var(--accent);
+}
+.plan .garden-level.selected text {
+  stroke: #fff;
+}
+.plan .garden-level.ghost {
+  opacity: 0.6;
+  pointer-events: none;
+}

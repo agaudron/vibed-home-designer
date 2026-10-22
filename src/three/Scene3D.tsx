@@ -579,9 +579,10 @@ export default function Scene3D() {
       }
       house.add(garden); // moves a kept garden out of the old house, so it survives the disposal below
       if (night !== !!demo) applyDay();
-      // Raised house: the ground is below the house floor.
-      ground.position.y = -floorLevelOf(design) - 2;
-      gridHelper.position.y = -floorLevelOf(design) - 1;
+      // Raised house: the ground is below the house floor; sloping land can go lower still.
+      const groundY = Math.min(-floorLevelOf(design) - 2, garden.userData.groundY ?? Infinity);
+      ground.position.y = groundY;
+      gridHelper.position.y = groundY + 1;
       scene.remove(old);
       disposeTree(old); // reused furniture has already been moved into the new group
       scene.add(house);
