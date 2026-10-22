@@ -1,4 +1,4 @@
-import { add, clampOpeningOffset, dist, dot, mul, norm, pointInPolygon, polygonArea, rad, rot, sub, uid, v, wallFrame } from './geometry';
+import { add, clampOpeningOffset, dist, dot, evalExpr, mul, norm, pointInPolygon, polygonArea, rad, rot, sub, uid, v, wallFrame } from './geometry';
 import { exteriorSides } from './facade';
 import type { Block, BlockSide, Design, FenceType, Garden, GardenArea, GardenAreaKind, GardenItem, Opening, Vec } from './types';
 
@@ -789,4 +789,54 @@ export function normaliseGarden(raw: unknown): Garden | undefined {
         }
       : undefined;
   return { block, areas, items, ...(typeof r.growth === 'number' ? { growth: r.growth } : {}), ...(terrain ? { terrain } : {}) };
+}
+
+// ---------- block dimensions ----------
+
+/** Change one side's length by moving the corner at its far end along it. */
+export function setBlockSideLength(b: Block, i: number, L: number): Block {
+  const a = b.points[i];
+  const j = (i + 1) % b.points.length;
+  const q = b.points[j];
+  const u = mul(sub(q, a), 1 / Math.max(1, dist(a, q)));
+  const np = add(a, mul(u, L));
+  return { ...b, points: b.points.map((p, k) => (k === j ? v(Math.round(np.x), Math.round(np.y)) : p)) };
+}
+
+/** Outside corners of the house: each wall's faces (so setbacks measure to the outside of the walls), or the rooms. */
+function houseFaces(d: Design): Vec[] {
+  if (!d.walls.length) return d.rooms.flatMap((r) => r.points);
+  return d.walls.flatMap((w) => {
+    const f = wallFrame(w);
+    const o = mul(f.n, w.thickness / 2);
+    return [add(w.start, o), sub(w.start, o), add(w.end, o), sub(w.end, o)];
+  });
+}
+
+/**
+ * Setbacks: for each boundary side, the shortest square-on distance from the outside of the house to it (from the
+ * house corner nearest that side). Sides the house doesn't face square-on (e.g. a corner splay) are left out.
+ */
+export function setbacks(d: Design, b: Block): { side: number; from: Vec; to: Vec; dist: number }[] {
+  const hp = houseFaces(d);
+  if (!hp.length) return [];
+  const out: { side: number; from: Vec; to: Vec; dist: number }[] = [];
+  b.points.forEach((a, i) => {
+    const q = b.points[(i + 1) % b.points.length];
+    const n = outwardNormal(b.points, i);
+    const from = hp.reduce((best, p) => (dot(p, n) > dot(best, n) ? p : best), hp[0]);
+    const gap = dot(sub(a, from), n);
+    if (gap <= 1) return;
+    const to = add(from, mul(n, gap));
+    const t = dot(sub(to, a), sub(q, a)) / Math.max(1, dist(a, q) ** 2);
+    if (t < 0 || t > 1) return;
+    out.push({ side: i, from, to, dist: gap });
+  });
+  return out;
+}
+
+/** A length typed in metres ("15.2"), or with units ("15.2m", "15200mm", "15+0.4"); mm, or NaN. */
+export function parseMetres(text: string): number {
+  const n = evalExpr(text);
+  return /m\s*$/i.test(text.trim()) ? n : n * 1000;
 }

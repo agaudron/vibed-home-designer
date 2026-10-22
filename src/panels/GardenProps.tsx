@@ -15,6 +15,7 @@ import {
   isPlant,
   outlineOf,
   perimeterOf,
+  setBlockSideLength,
   specOf,
   surfaceOf,
   SURFACES,
@@ -23,7 +24,7 @@ import {
 import { updateArea, updateBlock, updateGardenItem, updateLevel } from '../gardenActions';
 import { formatLevel } from '../terrain';
 import { EDGES } from '../outdoor';
-import { add, dist, formatArea, mul, normAngle, polygonArea, sub } from '../geometry';
+import { dist, formatArea, normAngle, polygonArea } from '../geometry';
 import { featureColor } from '../plan/garden';
 import type { Block, FenceType, GardenArea, GardenAreaKind, GardenItem, SpotLevel } from '../types';
 import { ColorField, Field, NumField, TextField, Toggle } from './Fields';
@@ -56,16 +57,7 @@ export function BlockProps({ b, houseArea }: { b: Block; houseArea: number }) {
   const area = polygonArea(b.points);
   const set = (fn: (x: Block) => Block) => updateBlock(fn);
   const setSide = (i: number, patch: Partial<Block['sides'][number]>) => set((x) => ({ ...x, sides: x.sides.map((s, k) => (k === i ? { ...s, ...patch } : s)) }));
-  /** Change one side's length by moving the corner at its far end along it. */
-  const setLength = (i: number, L: number) =>
-    set((x) => {
-      const a = x.points[i];
-      const j = (i + 1) % x.points.length;
-      const bq = x.points[j];
-      const u = mul(sub(bq, a), 1 / Math.max(1, dist(a, bq)));
-      const np = add(a, mul(u, L));
-      return { ...x, points: x.points.map((p, k) => (k === j ? { x: Math.round(np.x), y: Math.round(np.y) } : p)) };
-    });
+  const setLength = (i: number, L: number) => set((x) => setBlockSideLength(x, i, L));
   const fenceAll = (fence: FenceType) => set((x) => ({ ...x, sides: x.sides.map((s, i) => (i === x.street ? s : { ...s, fence })) }));
   return (
     <section className="prop-section">

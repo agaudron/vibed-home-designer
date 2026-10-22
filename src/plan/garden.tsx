@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { BED_TIMBERS, cropLayout, EDGINGS, fenceOf, fenceRuns, gardenOf, isPlant, outlineOf, outwardNormal, shownScale, specOf, streetStrip, surfaceOf } from '../garden';
+import { BED_TIMBERS, cropLayout, EDGINGS, fenceOf, fenceRuns, gardenOf, isPlant, outlineOf, outwardNormal, setbacks, shownScale, specOf, streetStrip, surfaceOf } from '../garden';
 import type { GardenSpec } from '../garden';
 import { EDGES } from '../outdoor';
-import { add, deg, dist, formatArea, mul, polygonArea, polygonCentroid, rad, rot, sub, v } from '../geometry';
+import { add, deg, dist, formatArea, mul, norm, polygonArea, polygonCentroid, rad, rot, sub, v } from '../geometry';
 import { autoInterval, boundsOf, contourLines, formatLevel, groundOf } from '../terrain';
 import type { Design, GardenArea, GardenItem, Selection, SpotLevel, Vec } from '../types';
 
@@ -239,25 +239,41 @@ export function GardenTop(props: { design: Design; px: (n: number) => number; se
         </g>,
       );
     }
-    // Side lengths: the block's boundaries, and the straight sides of the selected area.
-    const sideLabels = (p: Vec[], key: string, inside: boolean) =>
+    // Side lengths: the block's boundaries (click one to type its length), and the straight sides of the selected area.
+    const sideLabels = (p: Vec[], key: string, inside: boolean, clickable: boolean) =>
       p.forEach((a, i) => {
         const b = p[(i + 1) % p.length];
         const L = dist(a, b);
         if (L / px(1) < 50) return;
         const n = outwardNormal(p, i);
-        const m = add(mul(add(a, b), 0.5), mul(n, (inside ? -1 : 1) * px(12)));
-        let ang = deg(Math.atan2(b.y - a.y, b.x - a.x));
-        if (ang > 90.01 || ang < -89.99) ang += 180;
+        const m = add(mul(add(a, b), 0.5), mul(n, (inside ? -1 : 1) * px(13)));
+        const label = `${(L / 1000).toFixed(2)} m`;
         labels.push(
-          <text key={`${key}${i}`} x={m.x} y={m.y} fontSize={px(10.5)} textAnchor="middle" dominantBaseline="middle" transform={`rotate(${ang} ${m.x} ${m.y})`} className="garden-side">
-            {`${(L / 1000).toFixed(2)} m`}
-          </text>,
+          <DimLabel key={`${key}${i}`} at={m} along={sub(b, a)} text={label} px={px} className="garden-side-label" data={clickable ? { kind: 'block-side', index: i, value: L } : null} title="Click to type this boundary's length in metres" />,
         );
       });
-    if (g.block) sideLabels(g.block.points, 'b', false);
+    if (g.block) sideLabels(g.block.points, 'b', false, true);
     const selArea = selection?.kind === 'garden-area' ? g.areas.find((a) => a.id === selection.id) : undefined;
-    if (selArea && !selArea.curved) sideLabels(selArea.points, 'a', true);
+    if (selArea && !selArea.curved) sideLabels(selArea.points, 'a', true, false);
+    // Setbacks: from the outside of the house square-on to each boundary (click one to set it, moving the block).
+    if (g.block)
+      for (const sb of setbacks(design, g.block)) {
+        const u = norm(sub(sb.to, sb.from));
+        const t = v(-u.y, u.x);
+        const tick = px(5);
+        labels.push(
+          <g key={`sb${sb.side}`} className="garden-setback">
+            <line x1={sb.from.x} y1={sb.from.y} x2={sb.to.x} y2={sb.to.y} strokeWidth={px(1)} strokeDasharray={`${px(4)} ${px(3)}`} />
+            {[sb.from, sb.to].map((q, k) => (
+              <line key={k} x1={q.x - t.x * tick} y1={q.y - t.y * tick} x2={q.x + t.x * tick} y2={q.y + t.y * tick} strokeWidth={px(1)} />
+            ))}
+            {(
+              // Short gaps (side setbacks when zoomed out): the label sits just outside the boundary.
+              <DimLabel at={sb.dist / px(1) > 50 ? mul(add(sb.from, sb.to), 0.5) : add(sb.to, mul(u, px(28)))} along={sub(sb.to, sb.from)} text={`${(sb.dist / 1000).toFixed(2)} m`} px={px} className="garden-setback-label" data={{ kind: 'block-setback', index: sb.side, value: sb.dist }} title="Setback from the house — click to set it (moves the block)" />
+            )}
+          </g>,
+        );
+      }
   }
   return (
     <g className={`garden-top${editing ? ' editing' : ''}`} pointerEvents={editing ? undefined : 'none'}>
@@ -287,6 +303,32 @@ export function GardenTop(props: { design: Design; px: (n: number) => number; se
           {props.ghostLevel && <LevelMarker l={props.ghostLevel} px={px} selected={false} editing={false} ghost />}
         </g>
       )}
+    </g>
+  );
+}
+
+/** A measurement label on a pill, turned to run along a line; clickable to type a new value when `data` is given. */
+function DimLabel(props: { at: Vec; along: Vec; text: string; px: (n: number) => number; className: string; data: { kind: string; index: number; value: number } | null; title: string }) {
+  const { at, px, text } = props;
+  let ang = deg(Math.atan2(props.along.y, props.along.x));
+  if (ang > 90.01 || ang < -89.99) ang += 180;
+  const fs = px(10.5);
+  const w = text.length * fs * 0.6 + px(8);
+  return (
+    <g
+      className={`${props.className}${props.data ? ' editable' : ''}`}
+      transform={`rotate(${ang} ${at.x} ${at.y})`}
+      data-kind={props.data?.kind}
+      data-index={props.data?.index}
+      data-value={props.data?.value}
+      data-x={at.x}
+      data-y={at.y}
+    >
+      {props.data && <title>{props.title}</title>}
+      <rect x={at.x - w / 2} y={at.y - fs * 0.75} width={w} height={fs * 1.5} rx={px(3)} />
+      <text x={at.x} y={at.y} fontSize={fs} textAnchor="middle" dominantBaseline="middle">
+        {text}
+      </text>
     </g>
   );
 }

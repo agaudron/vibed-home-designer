@@ -46,7 +46,7 @@ export function createBlock(shape: string, W: number, D: number) {
 }
 
 /** Cut the block into front, back and side yards round the house (replacing any yards made before). */
-export function generateYards() {
+export function generateYards(quiet = false) {
   const d = store.state.design;
   const g = gardenOf(d);
   if (!g.block) {
@@ -58,7 +58,7 @@ export function generateYards() {
   const old = new Map(g.areas.filter((a) => a.kind === 'yard').map((a) => [a.name, a]));
   const made: GardenArea[] = yards.map((y) => ({ ...y, id: uid('ga'), ...(old.get(y.name)?.surface ? { surface: old.get(y.name)!.surface } : {}) }));
   updateGarden((gg) => ({ ...gg, areas: [...made, ...gg.areas.filter((a) => a.kind !== 'yard')] }));
-  store.flash(`Made ${made.length} yard${made.length === 1 ? '' : 's'}: ${made.map((y) => y.name.toLowerCase()).join(', ')}`);
+  if (!quiet) store.flash(`Made ${made.length} yard${made.length === 1 ? '' : 's'}: ${made.map((y) => y.name.toLowerCase()).join(', ')}`);
 }
 
 export function addArea(kind: GardenAreaKind, points: Vec[], extra: Partial<GardenArea> = {}): string {

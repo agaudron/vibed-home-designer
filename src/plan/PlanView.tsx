@@ -61,8 +61,8 @@ import { isShapeable, localCorners, moveCorner, worldCorners } from '../shape';
 import { ELEC_MAP, elecPlacement, linkRefFor, litLights, newElecPoint, productOf } from '../electrical';
 import { flickSwitch, startLinking, toggleLink } from '../elecActions';
 import { GardenGround, GardenTop, gardenHandles } from './garden';
-import { AREA_KINDS, frontDirection, gardenOf, isPlant, newGardenItem, outlineOf, outwardNormal, shapeAt, shownScale, smoothOutline, specOf } from '../garden';
-import { addArea, editOutline, newLevel, outlinePointsOf, updateGarden, updateTerrain } from '../gardenActions';
+import { AREA_KINDS, frontDirection, gardenOf, isPlant, newGardenItem, outlineOf, outwardNormal, parseMetres, setBlockSideLength, shapeAt, shownScale, smoothOutline, specOf } from '../garden';
+import { addArea, editOutline, generateYards, newLevel, outlinePointsOf, updateBlock, updateGarden, updateTerrain } from '../gardenActions';
 import { formatLevel, groundOf } from '../terrain';
 import { useMobile, useTouch } from '../mobile';
 
@@ -157,7 +157,7 @@ export default function PlanView() {
   /** Alignment lines while dragging an item (the edges it lined up with). */
   const [itemGuides, setItemGuides] = useState<[Vec, Vec][]>([]);
   const [typed, setTyped] = useState('');
-  const [lengthEdit, setLengthEdit] = useState<{ wallId: string; at: Vec; text: string; gap?: { side: 1 | -1; value: number; otherId: string }; opening?: { id: string; side: 'left' | 'right'; face: number }; item?: { id: string; dir: Vec; dist: number } } | null>(null);
+  const [lengthEdit, setLengthEdit] = useState<{ wallId: string; at: Vec; text: string; gap?: { side: 1 | -1; value: number; otherId: string }; opening?: { id: string; side: 'left' | 'right'; face: number }; item?: { id: string; dir: Vec; dist: number }; block?: { kind: 'block-side' | 'block-setback'; side: number; was: number } } | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const lastVertexClick = useRef<{ id: string; index: number; t: number } | null>(null);
   const [dragKind, setDragKind] = useState<string | null>(null);
@@ -555,6 +555,19 @@ export default function PlanView() {
         at: v(Number(ogEl.dataset.x), Number(ogEl.dataset.y)),
         text: String(Math.round(Number(ogEl.dataset.value))),
         opening: { id: ogEl.dataset.id!, side: ogEl.dataset.side as 'left' | 'right', face: Number(ogEl.dataset.face) },
+      });
+      return;
+    }
+    // Garden designer: click a boundary length or a setback to type it in metres.
+    const blockEl = (e.target as Element).closest('[data-kind="block-side"], [data-kind="block-setback"]') as SVGElement | null;
+    if (blockEl && !chain.length && gardenOpen) {
+      e.preventDefault();
+      const was = Number(blockEl.dataset.value);
+      setLengthEdit({
+        wallId: '',
+        at: v(Number(blockEl.dataset.x), Number(blockEl.dataset.y)),
+        text: (was / 1000).toFixed(2),
+        block: { kind: blockEl.dataset.kind as 'block-side' | 'block-setback', side: Number(blockEl.dataset.index), was },
       });
       return;
     }
@@ -1881,10 +1894,25 @@ export default function PlanView() {
           left={lengthEdit.at.x * s + view.tx}
           top={lengthEdit.at.y * s + view.ty}
           initial={lengthEdit.text}
+          unit={lengthEdit.block ? 'm' : 'mm'}
           onCommit={(text) => {
             const n = evalExpr(text);
             const w = store.state.design.walls.find((x) => x.id === lengthEdit.wallId);
-            if (lengthEdit.item) {
+            if (lengthEdit.block) {
+              const { kind, side, was } = lengthEdit.block;
+              const mm = parseMetres(text);
+              if (isFinite(mm) && Math.abs(mm - was) >= 5) {
+                if (kind === 'block-side' && mm >= 500) updateBlock((b) => setBlockSideLength(b, side, mm));
+                else if (kind === 'block-setback' && mm >= 0) {
+                  // Move the whole block square-on to that side, so the house sits that far from it.
+                  updateBlock((b) => {
+                    const n2 = outwardNormal(b.points, side);
+                    return { ...b, points: b.points.map((q) => v(Math.round(q.x + n2.x * (mm - was)), Math.round(q.y + n2.y * (mm - was)))) };
+                  });
+                  if (gardenOf(store.state.design).areas.some((a) => a.kind === 'yard')) generateYards(true);
+                }
+              }
+            } else if (lengthEdit.item) {
               const { id, dir, dist: was } = lengthEdit.item;
               if (n >= 0 && Math.abs(n - was) >= 0.5)
                 store.update((d) => ({
@@ -2020,7 +2048,7 @@ function ScaleBar({ scale }: { scale: number }) {
   );
 }
 
-function LengthEditor(props: { left: number; top: number; initial: string; onCommit: (text: string) => void; onCancel: () => void }) {
+function LengthEditor(props: { left: number; top: number; initial: string; unit?: string; onCommit: (text: string) => void; onCancel: () => void }) {
   const [text, setText] = useState(props.initial);
   const done = useRef(false);
   const finish = (commit: boolean) => {
@@ -2042,7 +2070,7 @@ function LengthEditor(props: { left: number; top: number; initial: string; onCom
         }}
         onBlur={() => finish(true)}
       />
-      <span>mm</span>
+      <span>{props.unit ?? 'mm'}</span>
     </div>
   );
 }

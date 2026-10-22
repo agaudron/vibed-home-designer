@@ -2562,7 +2562,8 @@ svg.plan.panning {
 .plan .garden-pattern,
 .plan .garden-street,
 .plan .garden-label,
-.plan .garden-side,
+.plan .garden-side-label:not(.editable),
+.plan .garden-setback line,
 .plan .garden-fences {
   pointer-events: none;
 }
@@ -2606,13 +2607,36 @@ svg.plan.panning {
   font-weight: 400;
   fill: #3b4a30;
 }
-.plan .garden-top .garden-side {
+/* Boundary lengths and setbacks: pills like the wall lengths; click to type a new value. */
+.plan .garden-top .garden-side-label rect,
+.plan .garden-top .garden-setback-label rect {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: #8a3b2a;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.plan .garden-top .garden-side-label text {
   fill: #8a3b2a;
   font-weight: 600;
-  paint-order: stroke;
-  stroke: #fff;
-  stroke-width: 3;
-  vector-effect: non-scaling-stroke;
+}
+.plan .garden-top .garden-setback line {
+  stroke: #1f7a5a;
+}
+.plan .garden-top .garden-setback-label rect {
+  stroke: #1f7a5a;
+}
+.plan .garden-top .garden-setback-label text {
+  fill: #1f7a5a;
+  font-weight: 600;
+}
+.plan .garden-top .editable {
+  cursor: text;
+}
+.plan .garden-top .editable:hover rect {
+  fill: #fff4ec;
+}
+.plan .garden-top .garden-setback-label.editable:hover rect {
+  fill: #e8f5ef;
 }
 .plan .garden-top.editing .garden-item {
   cursor: move;

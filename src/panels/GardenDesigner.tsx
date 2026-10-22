@@ -240,7 +240,7 @@ export default function GardenDesigner() {
         {/* ---- Yards ---- */}
         <div className="kd-section">
           <div className="kd-label">3. Front, back & side yards</div>
-          <button onClick={generateYards} disabled={!g.block} title={g.block ? 'Cut the block into yards round the house' : 'Set out the block first'}>
+          <button onClick={() => generateYards()} disabled={!g.block} title={g.block ? 'Cut the block into yards round the house' : 'Set out the block first'}>
             {yards.length ? 'Remake yards' : 'Make yards'}
           </button>
           {yards.length > 0 && (
