@@ -370,9 +370,73 @@ export interface Design {
   roof: Roof | null;
   /** Default outside finish for the house. */
   facade: Facade;
+  /** Garden designer: the block of land, its yards and garden areas, plants and landscaping. */
+  garden?: Garden;
 }
 
-export type EntityKind = 'wall' | 'opening' | 'item' | 'room' | 'dimension' | 'roof' | 'facade' | 'electric';
+/** Areas you outline in the garden designer (see AREA_KINDS in garden.ts). */
+export type GardenAreaKind = 'yard' | 'bed' | 'lawn' | 'driveway' | 'path' | 'paving' | 'gravel' | 'veggie';
+
+export interface GardenArea {
+  id: string;
+  kind: GardenAreaKind;
+  name: string;
+  points: Vec[];
+  /** Draw the outline as a smooth curve through its points; `sharp` lists the corners that stay sharp. */
+  curved?: boolean;
+  sharp?: number[];
+  /** Surface finish id (see SURFACES in garden.ts); unset = the kind's default. */
+  surface?: string;
+  /** Yards: which part of the block. */
+  zone?: 'front' | 'back' | 'side';
+  /** Beds, lawns and veggie patches: edging round the outside (see EDGINGS); unset = none. */
+  edging?: string;
+}
+
+/** A plant, tree, raised bed, letterbox or other feature in the garden (see GARDEN_CATALOG in garden.ts). */
+export interface GardenItem {
+  id: string;
+  type: string;
+  /** Centre of the footprint. */
+  x: number;
+  y: number;
+  /** Degrees, clockwise in plan. */
+  rotation: number;
+  width: number;
+  depth: number;
+  height: number;
+  color?: string;
+  options?: Record<string, string | number>;
+}
+
+export type FenceType = 'none' | 'colorbond' | 'paling' | 'slat' | 'picket' | 'pool' | 'rendered';
+
+export interface BlockSide {
+  fence: FenceType;
+  /** Fence height (mm); unset = the fence type's usual height. */
+  height?: number;
+  /** Fence colour; unset = the fence type's default. */
+  color?: string;
+}
+
+/** The block of land: its boundary, the fence along each side, and which side faces the street. */
+export interface Block {
+  points: Vec[];
+  /** One per boundary side: side i runs from points[i] to points[i + 1]. */
+  sides: BlockSide[];
+  /** Index of the side that faces the street. */
+  street: number;
+}
+
+export interface Garden {
+  block: Block | null;
+  areas: GardenArea[];
+  items: GardenItem[];
+  /** How grown plants are drawn: 0.3 = just planted … 1 = fully grown. Unset = fully grown. */
+  growth?: number;
+}
+
+export type EntityKind = 'wall' | 'opening' | 'item' | 'room' | 'dimension' | 'roof' | 'facade' | 'electric' | 'block' | 'garden-area' | 'garden-item';
 
 export interface Selection {
   kind: EntityKind;
@@ -389,6 +453,12 @@ export type Tool =
   | { kind: 'opening'; catalogId: string }
   /** Electrical page: place a product, or pick the lights one gang of a switch turns on. */
   | { kind: 'elec'; product: string }
-  | { kind: 'elec-link'; switchId: string; gang: number };
+  | { kind: 'elec-link'; switchId: string; gang: number }
+  /**
+   * Garden designer: outline an area (or the block itself) by clicking its corners, or drop a ready-made shape;
+   * place a plant or feature.
+   */
+  | { kind: 'garden-area'; area: GardenAreaKind | 'block'; curved?: boolean; shape?: string }
+  | { kind: 'garden-item'; itemType: string };
 
 export type ViewMode = '2d' | 'split' | '3d';

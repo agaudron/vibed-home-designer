@@ -19,6 +19,7 @@ import type { RoofFace } from '../roof';
 import type { Design, Facade, FloorFinish, FloorSize, Item, Opening, Selection, Wall } from '../types';
 import { buildItem, buildOpening, Builder } from './builders';
 import { buildElectrical } from './electrical3d';
+import { buildGarden } from './garden3d';
 import { beamOf, cctColor, cctOf, lightSource, litLights, productOf } from '../electrical';
 import { floorLevelOf, itemBase } from '../levels';
 import { bulkheads } from '../kitchen';
@@ -549,15 +550,34 @@ export default function Scene3D() {
     };
 
     const itemCache: ItemCache = new Map();
-    let last: { design: Design; selection: Selection | null; cutaway: boolean; roof: boolean; walking: boolean; electric: boolean; demo: string[] | null } | null = null;
+    let last: { design: Design; selection: Selection | null; cutaway: boolean; roof: boolean; walking: boolean; electric: boolean; demo: string[] | null; garden: boolean } | null = null;
+    // The garden only changes when the garden (or what's selected in it) does, so keep it between rebuilds.
+    let gardenCache: { garden: Design['garden']; sel: string; editing: boolean; level: number; obj: THREE.Object3D } | null = null;
+    const gardenGroup = (design: Design, selection: Selection | null, editing: boolean) => {
+      const sel = selection && (selection.kind === 'block' || selection.kind.startsWith('garden-')) ? `${selection.kind}:${selection.id}` : '';
+      const level = floorLevelOf(design);
+      const c = gardenCache;
+      if (c && c.garden === design.garden && c.sel === sel && c.editing === editing && c.level === level) return c.obj;
+      const obj = buildGarden(design, selection, editing, makeMat(false), makeMat(true));
+      gardenCache = { garden: design.garden, sel, editing, level, obj };
+      return obj;
+    };
     const rebuild = () => {
-      const { design, selection, cutaway: cut, showRoof: roofOn, walking: walkOn, electric, lightDemo: demo } = store.state;
-      if (last && last.design === design && last.selection === selection && last.cutaway === cut && last.roof === roofOn && last.walking === walkOn && last.electric === electric && last.demo === demo)
+      const { design, selection, cutaway: cut, showRoof: roofOn, walking: walkOn, electric, lightDemo: demo, garden: gardenOn } = store.state;
+      if (last && last.design === design && last.selection === selection && last.cutaway === cut && last.roof === roofOn && last.walking === walkOn && last.electric === electric && last.demo === demo && last.garden === gardenOn)
         return;
       const first = !last;
-      last = { design, selection, cutaway: cut, roof: roofOn, walking: walkOn, electric, demo };
+      const prevGarden = gardenCache?.obj;
+      last = { design, selection, cutaway: cut, roof: roofOn, walking: walkOn, electric, demo, garden: gardenOn };
       const old = house;
       house = buildHouse(design, selection, cut, roofOn, itemCache, walkOn, electric, demo ? litLights(design, new Set(demo)) : null);
+      const garden = gardenGroup(design, selection, gardenOn);
+      // A garden built afresh replaces the old one, which isn't in the old house any more: dispose of it here.
+      if (prevGarden && prevGarden !== garden) {
+        prevGarden.removeFromParent();
+        disposeTree(prevGarden);
+      }
+      house.add(garden); // moves a kept garden out of the old house, so it survives the disposal below
       if (night !== !!demo) applyDay();
       // Raised house: the ground is below the house floor.
       ground.position.y = -floorLevelOf(design) - 2;

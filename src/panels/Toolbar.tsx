@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { addOrSelectRoof } from '../actions';
 import { closeElectrical, openElectrical } from '../elecActions';
+import { closeGarden, openGarden } from '../gardenActions';
 import { exportPlanSvg, exportScreenshot, openDesign, resetFileHandle, saveDesign } from '../fileio';
 import { copyShareLink } from '../share';
 import { useMobile } from '../mobile';
@@ -25,6 +26,7 @@ export default function Toolbar() {
   const roofSelected = useStore((s) => s.selection?.kind === 'roof');
   const facadeSelected = useStore((s) => s.selection?.kind === 'facade');
   const electric = useStore((s) => s.electric);
+  const garden = useStore((s) => s.garden);
   // The settings panel shows whenever nothing is selected.
   const settingsOpen = useStore((s) => s.selection === null && s.tool.kind !== 'floor'); // the Floor tool shows floor areas instead
   useStore((s) => s.design); // re-render for undo/redo availability
@@ -97,6 +99,9 @@ export default function Toolbar() {
         </button>
         <button className={electric ? 'active' : ''} onClick={() => (electric ? closeElectrical() : openElectrical())}>
           ⚡ <span className="tb-label">Electrical</span>
+        </button>
+        <button className={garden ? 'active' : ''} onClick={() => (garden ? closeGarden() : openGarden())} aria-label="Garden">
+          🌿 <span className="tb-label">Garden</span>
         </button>
         <button className={settingsOpen ? 'active' : ''} onClick={() => store.set({ selection: null, tool: { kind: 'select' }, sheet: 'props' })}>
           ⚙ <span className="tb-label">Settings</span>
@@ -215,6 +220,14 @@ export default function Toolbar() {
         >
           <span className="ico">⚡</span>
           Electrical
+        </button>
+        <button
+          className={garden ? 'active' : ''}
+          onClick={() => (garden ? closeGarden() : openGarden())}
+          title="Garden designer: the block of land, front / back / side yards, garden beds, lawns, driveways, natives, trees and veggies"
+        >
+          <span className="ico">🌿</span>
+          Garden
         </button>
         <button
           className={settingsOpen ? 'active' : ''}

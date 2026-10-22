@@ -169,7 +169,7 @@ export function swapProduct(itemId: string, p: KaboodleProduct, s: KitchenStyle)
 
 /** Open the kitchen designer for a room: focus both views on it with the walls cut away. */
 export function openKitchenDesigner(roomId: string) {
-  store.set({ kitchen: roomId, electric: false, cutaway: true, hideCatalog: false, tool: { kind: 'select' } });
+  store.set({ kitchen: roomId, electric: false, garden: false, cutaway: true, hideCatalog: false, tool: { kind: 'select' } });
   requestAnimationFrame(() => {
     store.emit('fit');
     store.emit('fit3d');

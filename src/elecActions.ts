@@ -34,7 +34,7 @@ export function startLinking(switchId: string, gang: number) {
 }
 
 export function openElectrical() {
-  store.set({ electric: true, kitchen: null, hideCatalog: false, tool: { kind: 'select' }, selection: null });
+  store.set({ electric: true, kitchen: null, garden: false, hideCatalog: false, tool: { kind: 'select' }, selection: null });
 }
 
 export function closeElectrical() {

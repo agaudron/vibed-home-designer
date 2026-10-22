@@ -3,6 +3,7 @@ import type { Design, Roof, Selection, Tool, ViewMode } from './types';
 import { createSampleDesign } from './sample';
 import { defaultFacade } from './facade';
 import { normaliseElectrical } from './electrical';
+import { normaliseGarden } from './garden';
 
 export interface AppState {
   design: Design;
@@ -17,6 +18,8 @@ export interface AppState {
   kitchen: string | null;
   /** Electrical page open: the plan shows power points, switches and lights. */
   electric: boolean;
+  /** Garden designer open: the block, yards, garden areas and plants can be edited. */
+  garden: boolean;
   /** Light spread demo: the switch gangs that are on (see gangKey); null = demo off. */
   lightDemo: string[] | null;
   /** Phone layout: which panel the bottom sheet shows (the catalogue / designer, or properties), if any. */
@@ -163,6 +166,7 @@ class Store {
       walking: false,
       kitchen: null,
       electric: false,
+      garden: false,
       lightDemo: null,
       sheet: null,
       walker: null,
@@ -281,6 +285,15 @@ class Store {
     if (!s) return;
     const d = this.state.design;
     if (s.kind === 'facade') return;
+    if (s.kind === 'block') {
+      if (!d.garden?.block) this.state = { ...this.state, selection: null };
+      return;
+    }
+    if (s.kind === 'garden-area' || s.kind === 'garden-item') {
+      const gl: { id: string }[] = (s.kind === 'garden-area' ? d.garden?.areas : d.garden?.items) ?? [];
+      if (!gl.some((e) => e.id === s.id)) this.state = { ...this.state, selection: null };
+      return;
+    }
     if (s.kind === 'roof') {
       if (!d.roof) this.state = { ...this.state, selection: null };
       else if (s.id !== 'roof' && !d.roof.extensions?.some((x) => x.id === s.id)) this.state = { ...this.state, selection: { kind: 'roof', id: 'roof' } };
@@ -403,5 +416,6 @@ export function normaliseDesign(raw: unknown): Design {
     electrical: normaliseElectrical(r.electrical),
     roof: r.roof && typeof r.roof === 'object' ? { ...defaultRoof(), ...(r.roof as object) } : null,
     facade: r.facade && typeof r.facade === 'object' ? { ...defaultFacade(), ...(r.facade as object) } : defaultFacade(),
+    ...(r.garden ? { garden: normaliseGarden(r.garden) } : {}),
   };
 }

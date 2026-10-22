@@ -5,6 +5,7 @@ import { isFormControl, isTyping } from './keyboard';
 import Catalog from './panels/Catalog';
 import KitchenDesigner from './panels/KitchenDesigner';
 import ElectricalDesigner from './panels/ElectricalDesigner';
+import GardenDesigner from './panels/GardenDesigner';
 import Properties from './panels/Properties';
 import Legal from './panels/Legal';
 import ProductCard from './panels/ProductCard';
@@ -22,6 +23,7 @@ export default function App() {
   const hideProps = useStore((s) => s.hideProps);
   const kitchen = useStore((s) => s.kitchen);
   const electric = useStore((s) => s.electric);
+  const garden = useStore((s) => s.garden);
   const sheet = useStore((s) => s.sheet);
   const mobile = useMobile();
   // Phones show one view at a time.
@@ -97,7 +99,7 @@ export default function App() {
     document.addEventListener('change', onChange);
     // Picking the Floor tool brings back the side panel (it shows the floor areas).
     let lastTool = store.state.tool.kind;
-    let lastDesigner = !!(store.state.kitchen || store.state.electric);
+    let lastDesigner = !!(store.state.kitchen || store.state.electric || store.state.garden);
     const unsubTool = store.subscribe(() => {
       const t = store.state.tool.kind;
       if (t === 'floor' && lastTool !== 'floor' && store.state.hideProps && !isMobile()) store.set({ hideProps: false });
@@ -105,9 +107,10 @@ export default function App() {
         // Phones: the sheet gets out of the way once you've picked something to place or draw (tap the plan next),
         // and opening the kitchen / electrical designer shows it in the sheet.
         if (t !== lastTool && t !== 'select' && store.state.sheet) store.set({ sheet: null });
-        const designer = !!(store.state.kitchen || store.state.electric);
-        if (designer && !lastDesigner) store.set({ sheet: 'catalog' });
-        lastDesigner = designer;
+        const designer = !!(store.state.kitchen || store.state.electric || store.state.garden);
+        const opened = designer && !lastDesigner;
+        lastDesigner = designer; // before set(): it calls this listener again
+        if (opened) store.set({ sheet: 'catalog' });
       }
       lastTool = t;
     });
@@ -121,7 +124,7 @@ export default function App() {
     };
   }, []);
 
-  const leftPanel = kitchen ? <KitchenDesigner roomId={kitchen} /> : electric ? <ElectricalDesigner /> : <Catalog />;
+  const leftPanel = kitchen ? <KitchenDesigner roomId={kitchen} /> : electric ? <ElectricalDesigner /> : garden ? <GardenDesigner /> : <Catalog />;
   const views = (
     <div className={`views mode-${mode}`}>
       <ProductCard />
@@ -147,7 +150,7 @@ export default function App() {
         {sheet && (
           <div className={`sheet sheet-${sheet}`}>
             <div className="sheet-head">
-              <strong>{sheet === 'props' ? 'Properties' : kitchen || electric ? 'Designer' : 'Add to the plan'}</strong>
+              <strong>{sheet === 'props' ? 'Properties' : kitchen || electric || garden ? 'Designer' : 'Add to the plan'}</strong>
               <button onClick={() => store.set({ sheet: null })} aria-label="Close">
                 ✕
               </button>
@@ -204,12 +207,13 @@ function MobileBar({ mode }: { mode: ViewMode }) {
   const selected = useStore((s) => s.selection !== null);
   const kitchen = useStore((s) => s.kitchen);
   const electric = useStore((s) => s.electric);
+  const garden = useStore((s) => s.garden);
   const toggle = (which: 'catalog' | 'props') => store.set({ sheet: sheet === which ? null : which });
   return (
     <nav className="mobile-bar">
       <button className={sheet === 'catalog' ? 'active' : ''} onClick={() => toggle('catalog')}>
         <span className="ico">＋</span>
-        {kitchen ? 'Kitchen' : electric ? 'Electrical' : 'Add'}
+        {kitchen ? 'Kitchen' : electric ? 'Electrical' : garden ? 'Garden' : 'Add'}
       </button>
       <button className={`${sheet === 'props' ? 'active' : ''}${selected && sheet !== 'props' ? ' has-sel' : ''}`} onClick={() => toggle('props')}>
         <span className="ico">☰</span>

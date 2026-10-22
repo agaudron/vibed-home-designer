@@ -2524,3 +2524,175 @@ svg.plan.panning {
 .plan .outside-dims text.gap-t {
   fill: #6a737d;
 }
+
+/* ---------- Garden designer ---------- */
+/* Garden strokes are in plan mm (fences, edging, foliage), so they scale with the plan. */
+.plan .garden-ground *,
+.plan .garden-top * {
+  vector-effect: none;
+}
+.plan .garden-block {
+  fill: #b9cf9c;
+  fill-opacity: 0.5;
+  stroke: none;
+}
+.plan .garden-block.selected {
+  fill-opacity: 0.75;
+}
+.plan .garden-top .garden-boundary {
+  fill: none;
+  stroke: #8a3b2a;
+  stroke-width: 1.5;
+  stroke-dasharray: 12 4 2 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.plan .garden-area > polygon:first-child {
+  fill-opacity: 0.9;
+}
+.plan .garden-area.kind-yard > polygon:first-child {
+  fill-opacity: 0.45;
+}
+.plan .garden-ground .garden-area.selected > polygon:first-child {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+.plan .garden-pattern,
+.plan .garden-street,
+.plan .garden-label,
+.plan .garden-side,
+.plan .garden-fences {
+  pointer-events: none;
+}
+.plan .garden-ground .garden-ghost-area {
+  fill: rgba(47, 111, 222, 0.15);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.plan .garden-street .verge {
+  fill: #b9cf9c;
+  fill-opacity: 0.45;
+}
+.plan .garden-street .footpath {
+  fill: #dcd9d2;
+}
+.plan .garden-street .kerb {
+  fill: #b3afa7;
+}
+.plan .garden-street .road {
+  fill: #7b7b7d;
+  fill-opacity: 0.4;
+}
+.plan .garden-street text {
+  fill: #ffffff;
+  fill-opacity: 0.85;
+  font-weight: 700;
+  letter-spacing: 200px;
+}
+.plan .garden-top .garden-label text {
+  fill: #24331a;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+.plan .garden-top .garden-label .sub {
+  font-weight: 400;
+  fill: #3b4a30;
+}
+.plan .garden-top .garden-side {
+  fill: #8a3b2a;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+.plan .garden-top.editing .garden-item {
+  cursor: move;
+}
+.plan .garden-top .garden-sel {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+}
+.plan .garden-item.ghost {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.plan .fence-pool {
+  stroke-dasharray: 1100 100;
+}
+.plan .handle.insert circle {
+  fill: var(--accent-soft);
+}
+.plan .handle.insert path {
+  fill: none;
+}
+.plan .handle.insert {
+  cursor: copy;
+}
+/* While the garden designer is open, the house is there to plan round, not to edit. */
+.plan.garden-mode .rooms,
+.plan.garden-mode .items,
+.plan.garden-mode .walls,
+.plan.garden-mode .openings,
+.plan.garden-mode .door-stops,
+.plan.garden-mode .dims,
+.plan.garden-mode .labels,
+.plan.garden-mode .wall-label,
+.plan.garden-mode .gap-label {
+  pointer-events: none;
+}
+.plan.garden-mode .items,
+.plan.garden-mode .dims {
+  opacity: 0.55;
+}
+.garden-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+.garden-native {
+  margin-left: 6px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #e5efdc;
+  color: #3d6b2a;
+  font-style: normal;
+  white-space: nowrap;
+}
+.garden-botanical {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.garden-botanical-sm {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+.garden-side-row {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 6px;
+}
+.garden-kinds .ico {
+  margin-right: 2px;
+}
+.garden-designer .kd-section > button {
+  width: 100%;
+}

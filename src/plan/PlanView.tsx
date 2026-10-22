@@ -42,7 +42,7 @@ import {
   uid,
 } from '../geometry';
 import { store, useStore } from '../store';
-import type { Design, Dimension, Item, Opening, Room, RoofExtension, Vec, Wall } from '../types';
+import type { Design, Dimension, GardenAreaKind, GardenItem, Item, Opening, Room, RoofExtension, Vec, Wall } from '../types';
 import { generateRoof } from '../roof';
 import type { RoofOutcome } from '../roof';
 import { itemClearances } from '../clearance';
@@ -60,6 +60,9 @@ import { OutsideDims, outsideDimensions } from './outsideDims';
 import { isShapeable, localCorners, moveCorner, worldCorners } from '../shape';
 import { ELEC_MAP, elecPlacement, linkRefFor, litLights, newElecPoint, productOf } from '../electrical';
 import { flickSwitch, startLinking, toggleLink } from '../elecActions';
+import { GardenGround, GardenTop, gardenHandles } from './garden';
+import { AREA_KINDS, frontDirection, gardenOf, isPlant, newGardenItem, outlineOf, outwardNormal, shapeAt, shownScale, smoothOutline, specOf } from '../garden';
+import { addArea, editOutline, outlinePointsOf, updateGarden } from '../gardenActions';
 import { useMobile, useTouch } from '../mobile';
 
 interface View {
@@ -85,7 +88,13 @@ type Drag =
   // Roof: pull an edge out (creates an extension), move an extension, or drag one of its sides.
   | { kind: 'roof-pull'; edge: { a: Vec; b: Vec; n: Vec }; overhang: number; extId: string | null }
   | { kind: 'roof-ext'; id: string; start: Vec; orig: RoofExtension }
-  | { kind: 'roof-ext-side'; id: string; side: number; orig: RoofExtension };
+  | { kind: 'roof-ext-side'; id: string; side: number; orig: RoofExtension }
+  // Garden: move a plant / feature, rotate or resize it; move the block or an area (id 'block' = the block), or one corner.
+  | { kind: 'garden-item'; id: string; off: Vec }
+  | { kind: 'garden-rotate'; id: string }
+  | { kind: 'garden-resize'; id: string; orig: GardenItem }
+  | { kind: 'garden-outline'; id: string; start: Vec; orig: Vec[] }
+  | { kind: 'garden-vertex'; id: string; index: number };
 
 /** Board-line pattern for a floor: its direction and the spacing (board width, or tile width plus grout). */
 function boardPattern(fl: ReturnType<typeof floorOf>) {
@@ -126,6 +135,7 @@ export default function PlanView() {
   const tool = useStore((s) => s.tool);
   const walker = useStore((s) => s.walker);
   const electric = useStore((s) => s.electric);
+  const gardenOpen = useStore((s) => s.garden);
   const lightDemo = useStore((s) => s.lightDemo);
   const lit = useMemo(() => (lightDemo ? litLights(design, new Set(lightDemo)) : null), [design, lightDemo]);
   const roofSel = selection?.kind === 'roof';
@@ -147,6 +157,7 @@ export default function PlanView() {
   const [typed, setTyped] = useState('');
   const [lengthEdit, setLengthEdit] = useState<{ wallId: string; at: Vec; text: string; gap?: { side: 1 | -1; value: number; otherId: string }; opening?: { id: string; side: 'left' | 'right'; face: number }; item?: { id: string; dir: Vec; dist: number } } | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const lastVertexClick = useRef<{ id: string; index: number; t: number } | null>(null);
   const [dragKind, setDragKind] = useState<string | null>(null);
   const spaceDown = useRef(false);
   const fitted = useRef(false);
@@ -179,6 +190,12 @@ export default function PlanView() {
     d.items.forEach((i) => pts.push(...itemCorners(i)));
     d.rooms.forEach((r) => pts.push(...r.points));
     d.dimensions.forEach((m) => pts.push(m.a, m.b));
+    // Garden designer: the whole block (and the street in front of it).
+    const g = gardenOf(d);
+    if (store.state.garden) {
+      if (g.block) pts.push(...g.block.points);
+      g.areas.forEach((a) => pts.push(...a.points));
+    }
     // Kitchen designer: just the kitchen.
     const kitchen = store.state.kitchen ? d.rooms.find((r) => r.id === store.state.kitchen) : undefined;
     if (kitchen?.points.length) pts.splice(0, pts.length, ...kitchen.points);
@@ -234,7 +251,9 @@ export default function PlanView() {
   }, [tool]);
 
   // ---------- derived snapping state ----------
-  const drawing = tool.kind === 'wall' || tool.kind === 'floor' || tool.kind === 'measure' || tool.kind === 'room';
+  /** Clicking out the corners of an outline: a floor, a garden area, or the block. */
+  const outlining = tool.kind === 'floor' || (tool.kind === 'garden-area' && !tool.shape);
+  const drawing = tool.kind === 'wall' || tool.kind === 'measure' || tool.kind === 'room' || outlining;
 
   // These are computed both for rendering (from the last mouse position) and inside event handlers
   // (from the event itself) so a fast click never uses a stale position.
@@ -245,7 +264,12 @@ export default function PlanView() {
       grid,
       free,
       anchor: chain.length ? chain[chain.length - 1] : null,
-      extraPoints: tool.kind === 'floor' ? [...chain, ...design.rooms.flatMap((r) => r.points)] : chain.slice(0, 1),
+      extraPoints:
+        tool.kind === 'floor'
+          ? [...chain, ...design.rooms.flatMap((r) => r.points)]
+          : tool.kind === 'garden-area'
+            ? [...chain, ...(gardenOf(design).block?.points ?? []), ...gardenOf(design).areas.flatMap((a) => a.points)]
+            : chain.slice(0, 1),
     });
   };
 
@@ -275,7 +299,21 @@ export default function PlanView() {
     return at ? { e: { ...newElecPoint(prod, at), id: '__ghost' }, guides: at.guides } : null;
   };
 
+  /** Garden designer: the plant / feature that would be placed here, or the ready-made shape that would be dropped. */
+  const computeGhostGarden = (p: Vec | null, free: boolean): GardenItem | null => {
+    if (tool.kind !== 'garden-item' || !p) return null;
+    const step = free ? 1 : Math.min(grid, 50);
+    return { ...newGardenItem(tool.itemType, roundTo(p.x, step), roundTo(p.y, step)), id: '__ghost' };
+  };
+  const computeGhostShape = (p: Vec | null, free: boolean) => {
+    if (tool.kind !== 'garden-area' || !tool.shape || !p) return null;
+    const step = free ? 1 : Math.min(grid, 50);
+    return shapeAt(tool.shape, v(roundTo(p.x, step), roundTo(p.y, step)));
+  };
+
   const snap = computeSnap(mouse, mods.shift);
+  const ghostGarden = computeGhostGarden(mouse, mods.shift);
+  const ghostShape = computeGhostShape(mouse, mods.shift);
   const ghostItem = computeGhostItem(mouse, mods.shift);
   const ghostOpening = computeGhostOpening(mouse, mods.shift);
   const ghostElec = computeGhostElec(mouse, mods.shift);
@@ -301,7 +339,7 @@ export default function PlanView() {
       setTyped('');
       if (chain.length >= 2 && near(p, chain[0], 1)) finishChain();
       else setChain([...chain, p]);
-    } else if (tool.kind === 'floor') {
+    } else if (outlining) {
       if (chain.length >= 3 && near(p, chain[0], tol)) {
         closeFloor(chain);
         return;
@@ -325,11 +363,33 @@ export default function PlanView() {
   };
 
   const closeFloor = (pts: Vec[]) => {
+    if (tool.kind === 'garden-area') {
+      closeGardenOutline(pts, tool.area, tool.curved);
+      return;
+    }
     const room = newRoom(store.state.design, pts);
     store.update((d) => ({ ...d, rooms: [...d.rooms, room] }));
     setChain([]);
     store.setTool({ kind: 'select' });
     store.select({ kind: 'room', id: room.id });
+  };
+
+  /** Finish outlining a garden area, or the block (its street side is the one facing the front of the house). */
+  const closeGardenOutline = (pts: Vec[], area: GardenAreaKind | 'block', curved?: boolean) => {
+    setChain([]);
+    store.setTool({ kind: 'select' });
+    if (area === 'block') {
+      const n = frontDirection(store.state.design);
+      let street = 0;
+      pts.forEach((_, i) => {
+        if (dot(outwardNormal(pts, i), n) > dot(outwardNormal(pts, street), n)) street = i;
+      });
+      updateGarden((g) => ({ ...g, block: { points: pts.map((q) => v(Math.round(q.x), Math.round(q.y))), sides: pts.map((_, i) => ({ fence: i === street ? 'none' : 'colorbond' })), street } }));
+      store.select({ kind: 'block', id: 'block' });
+      return;
+    }
+    const id = addArea(area, pts, { curved: curved ?? AREA_KINDS[area].curved });
+    store.select({ kind: 'garden-area', id });
   };
 
   const commitTyped = () => {
@@ -365,7 +425,7 @@ export default function PlanView() {
         consume();
       } else if (e.key === 'Enter' && chain.length) {
         if (typed) commitTyped();
-        else if (tool.kind === 'floor' && chain.length >= 3) closeFloor(chain);
+        else if (outlining && chain.length >= 3) closeFloor(chain);
         else finishChain();
         consume();
       } else if (chain.length && tool.kind === 'wall' && /^[0-9.]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
@@ -374,7 +434,7 @@ export default function PlanView() {
       } else if (e.key === 'Backspace' && typed) {
         setTyped((t) => t.slice(0, -1));
         consume();
-      } else if (e.key === 'Backspace' && chain.length > 1 && tool.kind === 'floor') {
+      } else if (e.key === 'Backspace' && chain.length > 1 && outlining) {
         setChain((c) => c.slice(0, -1));
         consume();
       }
@@ -451,7 +511,7 @@ export default function PlanView() {
     }
     if (e.button === 2) {
       if (chain.length) {
-        if (tool.kind === 'floor' && chain.length >= 3) closeFloor(chain);
+        if (outlining && chain.length >= 3) closeFloor(chain);
         else finishChain();
       } else if (tool.kind !== 'select') store.setTool({ kind: 'select' });
       return;
@@ -506,6 +566,19 @@ export default function PlanView() {
 
     setMouse(p);
     switch (tool.kind) {
+      case 'garden-area':
+        if (tool.shape) {
+          // Drop a ready-made shape here.
+          const sh = computeGhostShape(p, e.shiftKey);
+          if (sh) {
+            const area = tool.area === 'block' ? 'bed' : tool.area;
+            const id = addArea(area, sh.points, { curved: sh.curved, ...(sh.sharp ? { sharp: sh.sharp } : {}) });
+            if (!e.ctrlKey && !e.metaKey) store.setTool({ kind: 'select' });
+            store.select({ kind: 'garden-area', id });
+          }
+          return;
+        }
+      // falls through: outline it point by point
       case 'wall':
       case 'floor':
       case 'measure': {
@@ -537,6 +610,19 @@ export default function PlanView() {
         if (g) {
           const pt = { ...g.e, id: uid('e') };
           store.update((d) => ({ ...d, electrical: [...d.electrical, pt] }));
+        }
+        return;
+      }
+      case 'garden-item': {
+        // Plants: keep planting until Esc / right-click; other features go in once (Ctrl+click for more).
+        const gi = computeGhostGarden(p, e.shiftKey);
+        if (gi) {
+          const it = { ...gi, id: newGardenItem(gi.type, 0, 0).id };
+          updateGarden((g) => ({ ...g, items: [...g.items, it] }));
+          if (!isPlant(specOf(it)) && !e.ctrlKey && !e.metaKey) {
+            store.setTool({ kind: 'select' });
+            store.select({ kind: 'garden-item', id: it.id });
+          }
         }
         return;
       }
@@ -588,6 +674,27 @@ export default function PlanView() {
       else if (h === 'item-resize') beginDrag(e, { kind: 'item-resize', id, orig: d.items.find((i) => i.id === id)! });
       else if (h === 'item-corner') beginDrag(e, { kind: 'item-corner', id, index: Number(target.dataset.index) });
       else if (h === 'room-vertex') beginDrag(e, { kind: 'room-vertex', id, index: Number(target.dataset.index) });
+      else if (h === 'garden-vertex') {
+        const index = Number(target.dataset.index);
+        // A second click on the same corner (a double-click) switches a curved area's corner between curved and sharp.
+        // Detected here: the drag captures the pointer, so the dblclick event wouldn't reach the handle.
+        const last = lastVertexClick.current;
+        const again = !!last && last.id === id && last.index === index && e.timeStamp - last.t < 400;
+        lastVertexClick.current = again ? null : { id, index, t: e.timeStamp };
+        if (e.altKey) store.update((dd) => editOutline(dd, id, { op: 'remove', index }));
+        else if (again && id !== 'block') store.update((dd) => editOutline(dd, id, { op: 'sharp', index }));
+        else beginDrag(e, { kind: 'garden-vertex', id, index });
+      } else if (h === 'garden-insert') {
+        // Add the corner straight away and drag it.
+        const index = Number(target.dataset.index);
+        store.update((dd) => editOutline(dd, id, { op: 'insert', index, p }));
+        beginDrag(e, { kind: 'garden-vertex', id, index });
+        if (dragRef.current) dragRef.current.recorded = true; // the insert is already an undo step
+      } else if (h === 'garden-rotate') beginDrag(e, { kind: 'garden-rotate', id });
+      else if (h === 'garden-resize') {
+        const it = gardenOf(d).items.find((x) => x.id === id);
+        if (it) beginDrag(e, { kind: 'garden-resize', id, orig: it });
+      }
       else if (h === 'roof-pull' && roofRes && !('error' in roofRes) && d.roof) {
         const edge = roofRes.outline[Number(target.dataset.index)];
         if (edge) beginDrag(e, { kind: 'roof-pull', edge, overhang: Math.max(0, d.roof.overhang), extId: null });
@@ -601,6 +708,22 @@ export default function PlanView() {
       const ex = d.roof?.extensions?.find((x) => x.id === id);
       store.select({ kind: 'roof', id });
       if (ex) beginDrag(e, { kind: 'roof-ext', id, start: p, orig: ex });
+      return;
+    }
+    if (kind === 'garden-item') {
+      const it = gardenOf(d).items.find((x) => x.id === id);
+      store.select({ kind: 'garden-item', id });
+      if (it) beginDrag(e, { kind: 'garden-item', id, off: sub(p, v(it.x, it.y)) });
+      return;
+    }
+    if (kind === 'garden-area' || kind === 'block') {
+      // Like floors: the first click selects, and you can drag it once it's selected; otherwise pan.
+      const gid = kind === 'block' ? 'block' : id;
+      if (isSel(kind, gid)) beginDrag(e, { kind: 'garden-outline', id: gid, start: p, orig: outlinePointsOf(d, gid) });
+      else {
+        store.select({ kind, id: gid });
+        beginDrag(e, { kind: 'pan', sx: e.clientX, sy: e.clientY, tx: vw.tx, ty: vw.ty });
+      }
       return;
     }
     if (kind === 'electric') {
@@ -812,6 +935,50 @@ export default function PlanView() {
         if (drag.side === 3) y0 = Math.min(y1 - 300, y1 - roundTo(y1 - lc.y, step));
         const c = add(v(ex.x, ex.y), rot(v((x0 + x1) / 2, (y0 + y1) / 2), r));
         applyDrag((dd) => withExtension(dd, drag.id, (e2) => ({ ...e2, x: Math.round(c.x), y: Math.round(c.y), width: Math.round(x1 - x0), depth: Math.round(y1 - y0) })));
+        break;
+      }
+      case 'garden-item': {
+        const step = free ? 1 : Math.min(grid, 50);
+        const at = sub(p, drag.off);
+        applyDrag((dd) => ({ ...dd, garden: { ...gardenOf(dd), items: gardenOf(dd).items.map((x) => (x.id === drag.id ? { ...x, x: roundTo(at.x, step), y: roundTo(at.y, step) } : x)) } }));
+        break;
+      }
+      case 'garden-rotate': {
+        const it = gardenOf(d).items.find((x) => x.id === drag.id);
+        if (!it) break;
+        let a = deg(Math.atan2(p.y - it.y, p.x - it.x)) + 90;
+        a = free ? Math.round(a) : roundTo(a, 15);
+        applyDrag((dd) => ({ ...dd, garden: { ...gardenOf(dd), items: gardenOf(dd).items.map((x) => (x.id === drag.id ? { ...x, rotation: normAngle(a) } : x)) } }));
+        break;
+      }
+      case 'garden-resize': {
+        // The opposite corner stays put; plants stay round (their size is the grown size).
+        const it = drag.orig;
+        const k = shownScale(gardenOf(d), it);
+        const r = rad(it.rotation);
+        const c = v(it.x, it.y);
+        const lc = rot(sub(p, c), -r);
+        const o = v((-it.width * k) / 2, (-it.depth * k) / 2);
+        const step = free ? 1 : 10;
+        let w = Math.max(100, roundTo((lc.x - o.x) / k, step));
+        let dp = Math.max(50, roundTo((lc.y - o.y) / k, step));
+        if (isPlant(specOf(it)) && specOf(it).round) w = dp = Math.max(w, dp);
+        const nc = add(c, rot(add(o, v((w * k) / 2, (dp * k) / 2)), r));
+        applyDrag((dd) => ({ ...dd, garden: { ...gardenOf(dd), items: gardenOf(dd).items.map((x) => (x.id === drag.id ? { ...x, width: w, depth: dp, x: Math.round(nc.x), y: Math.round(nc.y) } : x)) } }));
+        break;
+      }
+      case 'garden-outline': {
+        let delta = sub(p, drag.start);
+        if (!free) delta = v(roundTo(delta.x, grid), roundTo(delta.y, grid));
+        applyDrag((dd) => editOutline(dd, drag.id, { op: 'translate', orig: drag.orig, delta }));
+        break;
+      }
+      case 'garden-vertex': {
+        const g = gardenOf(d);
+        const own = outlinePointsOf(d, drag.id)[drag.index];
+        const others = [...(g.block?.points ?? []), ...g.areas.flatMap((a) => a.points)].filter((q) => q !== own);
+        const sp = snapPoint(d, p, { tol, grid, free, extraPoints: others });
+        applyDrag((dd) => editOutline(dd, drag.id, { op: 'move', index: drag.index, p: sp.p }));
         break;
       }
       case 'dimension': {
@@ -1497,6 +1664,8 @@ export default function PlanView() {
         </polygon>,
       );
     });
+  } else if (selection?.kind === 'block' || selection?.kind === 'garden-area' || selection?.kind === 'garden-item') {
+    if (gardenOpen) handles.push(...gardenHandles(design, selection, px));
   } else if (selection?.kind === 'room') {
     const r = design.rooms.find((x) => x.id === selection.id);
     r?.points.forEach((p, i) =>
@@ -1506,7 +1675,7 @@ export default function PlanView() {
 
   // Tool previews
   const preview: ReactNode[] = [];
-  if (snap && (tool.kind === 'wall' || tool.kind === 'floor' || tool.kind === 'measure')) {
+  if (snap && (tool.kind === 'wall' || tool.kind === 'measure' || outlining)) {
     const p = snap.p;
     if (chain.length) {
       const last = chain[chain.length - 1];
@@ -1521,9 +1690,10 @@ export default function PlanView() {
           <line key="seg" x1={last.x} y1={last.y} x2={end.x} y2={end.y} className="draft-wall" strokeWidth={design.settings.wallThickness} />,
         );
         preview.push(dimLine(last, end, 'draftdim', { preview: true }));
-      } else if (tool.kind === 'floor') {
+      } else if (outlining) {
         const pts = [...chain, p];
-        preview.push(<polygon key="fl" points={pts.map((q) => `${q.x},${q.y}`).join(' ')} className="draft-floor" />);
+        const curve = tool.kind === 'garden-area' && (tool.curved ?? (tool.area !== 'block' && AREA_KINDS[tool.area].curved)) && pts.length >= 3;
+        preview.push(<polygon key="fl" points={(curve ? smoothOutline(pts) : pts).map((q) => `${q.x},${q.y}`).join(' ')} className="draft-floor" />);
         preview.push(dimLine(last, p, 'draftdim', { preview: true }));
       } else {
         preview.push(dimLine(last, p, 'draftdim', { preview: true }));
@@ -1565,7 +1735,7 @@ export default function PlanView() {
     <div className="plan-wrap" ref={wrapRef}>
       <svg
         ref={svgRef}
-        className={`plan plan-canvas ${cursorClass}${electric ? ' elec-mode' : ''}`}
+        className={`plan plan-canvas ${cursorClass}${electric ? ' elec-mode' : ''}${gardenOpen ? ' garden-mode' : ''}`}
         width={size.w}
         height={size.h}
         onPointerDown={onPointerDown}
@@ -1575,7 +1745,7 @@ export default function PlanView() {
         onPointerLeave={() => setMouse(null)}
         onContextMenu={(e) => e.preventDefault()}
         onDoubleClick={() => {
-          if (tool.kind === 'floor' && chain.length >= 3) closeFloor(chain);
+          if (outlining && chain.length >= 3) closeFloor(chain);
           else if (tool.kind === 'wall') finishChain();
         }}
       >
@@ -1598,6 +1768,7 @@ export default function PlanView() {
         </defs>
         <g transform={`translate(${view.tx} ${view.ty}) scale(${s})`}>
           <rect x={visible.x0} y={visible.y0} width={visible.x1 - visible.x0} height={visible.y1 - visible.y0} fill="url(#grid-major)" />
+          <GardenGround design={design} px={px} selection={selection} editing={gardenOpen} ghost={ghostShape ? outlineOf(ghostShape) : null} />
           <g className="rooms">
             {design.rooms.map((r) => {
               const fl = floorOf(design, r);
@@ -1611,6 +1782,7 @@ export default function PlanView() {
               );
             })}
           </g>
+          <GardenTop design={design} px={px} selection={selection} editing={gardenOpen} ghost={ghostGarden} />
           <g className="items low">{itemsSorted.filter((i) => i.elevation <= 0).map((i) => renderItem(i))}</g>
           <g className="walls">{wallEls}</g>
           <g className="openings">
@@ -1718,15 +1890,15 @@ export default function PlanView() {
         // Phones: what Enter / Esc / right-click do on a computer.
         <div className="plan-actions">
           <span className="hint">{TOUCH_HINTS[tool.kind]}</span>
-          {tool.kind === 'floor' && chain.length > 1 && <button onClick={() => setChain((c) => c.slice(0, -1))}>Undo point</button>}
-          {tool.kind === 'floor' && chain.length >= 3 && (
+          {outlining && chain.length > 1 && <button onClick={() => setChain((c) => c.slice(0, -1))}>Undo point</button>}
+          {outlining && chain.length >= 3 && (
             <button className="primary" onClick={() => closeFloor(chain)}>
-              Finish floor
+              {tool.kind === 'floor' ? 'Finish floor' : 'Finish'}
             </button>
           )}
           {tool.kind === 'wall' && chain.length > 0 && <button onClick={finishChain}>End walls</button>}
           <button
-            className={tool.kind === 'floor' && chain.length >= 3 ? '' : 'primary'}
+            className={outlining && chain.length >= 3 ? '' : 'primary'}
             onClick={() => {
               finishChain();
               store.setTool({ kind: 'select' });
@@ -1771,6 +1943,8 @@ const HINTS: Record<string, string[]> = {
   opening: ['Hover a wall and click to insert', 'Ctrl+click to keep placing · Esc to cancel'],
   elec: ['Click to place each one · switches and power points go on the nearest wall', 'Lights line up with each other · Shift = no snapping', 'Esc or right-click when done'],
   'elec-link': ['Click lights to add them to this switch, click again to take them off', 'Fans with a light: switches link the light, fan controllers the fan', 'Click another switch to link that one instead', 'Esc or right-click when done'],
+  'garden-area': ['Click each corner · click the first point, Enter or double-click to finish', 'Backspace removes the last point · Shift = no snapping', 'Ready-made shapes: click to drop one'],
+  'garden-item': ['Click to place · plants keep planting until Esc or right-click', 'Shift = no snapping · Ctrl+click to keep placing other features'],
 };
 
 /** Short hints for touch screens (shown above the Done button). */
@@ -1783,6 +1957,8 @@ const TOUCH_HINTS: Record<string, string> = {
   opening: 'Tap a wall to put it in',
   elec: 'Tap to place; switches and power points go on walls',
   'elec-link': 'Tap lights to add or take them off',
+  'garden-area': 'Tap each corner, or tap to drop a shape',
+  'garden-item': 'Tap where it goes',
 };
 
 function PlanHud(props: { tool: string; chainLen: number; typed: string; mouse: Vec | null; snapKind?: string }) {

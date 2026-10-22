@@ -267,9 +267,10 @@ function Privacy() {
 /** Brands that appear in Home Designer, and what they're used for. */
 const BRANDS: { name: string; url: string; what: string }[] = [
   { name: 'ABI Interiors', url: 'https://www.abiinteriors.com.au/', what: 'Bathroom, kitchen and laundry fixtures and tapware' },
+  { name: 'Birdies', url: 'https://www.birdies.com.au/', what: 'Corrugated steel raised garden beds (garden designer)' },
   { name: 'Bunnings (Pinnacle)', url: 'https://www.bunnings.com.au/', what: 'Garage shelving; Kaboodle product details' },
   { name: 'Clipsal (Schneider Electric)', url: 'https://www.clipsal.com/', what: 'Iconic switches, dimmers, fan controllers and power points; LED downlights (electrical plan)' },
-  { name: 'COLORBOND® steel (BlueScope)', url: 'https://colorbond.com/', what: 'Roof and garage door colours' },
+  { name: 'COLORBOND® steel (BlueScope)', url: 'https://colorbond.com/', what: 'Roof, garage door, fence and garden colours' },
   { name: 'Corinthian Doors', url: 'https://www.corinthian.com.au/', what: 'Internal and entrance door designs' },
   { name: 'Dulux', url: 'https://www.dulux.com.au/', what: 'Paint colours' },
   { name: 'Front Porch Properties', url: 'https://frontporchproperties.com.au/', what: 'Entrance doors and sidelites' },

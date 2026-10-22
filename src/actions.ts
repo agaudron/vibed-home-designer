@@ -1,5 +1,7 @@
 import { DOOR_DESIGNS, ITEM_MAP, OPENING_MAP } from './catalog';
 import { productOf, removeElec } from './electrical';
+import { gardenOf } from './garden';
+import { editOutline } from './gardenActions';
 import { add, clampOpeningOffset, mul, near, normAngle, projectOnSegment, rad, rot, uid, uncoveredParts, v, wallFrame } from './geometry';
 import { defaultRoof, store } from './store';
 import type { Design, Item, Opening, Room, Vec, Wall } from './types';
@@ -97,6 +99,12 @@ export function deleteSelection() {
         return { ...d, roof: null };
       case 'electric':
         return removeElec(d, new Set([s.id]));
+      case 'block':
+        return { ...d, garden: { ...gardenOf(d), block: null } };
+      case 'garden-area':
+        return { ...d, garden: { ...gardenOf(d), areas: gardenOf(d).areas.filter((a) => a.id !== s.id) } };
+      case 'garden-item':
+        return { ...d, garden: { ...gardenOf(d), items: gardenOf(d).items.filter((i) => i.id !== s.id) } };
       case 'facade':
         return d;
     }
@@ -134,6 +142,19 @@ export function duplicateSelection() {
     const copy = { ...r, id: uid('r'), name: `${r.name} copy`, points: r.points.map((p) => add(p, off)) };
     store.update((dd) => ({ ...dd, rooms: [...dd.rooms, copy] }));
     store.select({ kind: 'room', id: copy.id });
+  } else if (s.kind === 'garden-item') {
+    const it = gardenOf(d).items.find((x) => x.id === s.id);
+    if (!it) return;
+    // Plants: a plant's width along; features: alongside, so a row is quick to set out.
+    const copy = { ...it, id: uid('g'), x: it.x + Math.max(300, it.width), y: it.y };
+    store.update((dd) => ({ ...dd, garden: { ...gardenOf(dd), items: [...gardenOf(dd).items, copy] } }));
+    store.select({ kind: 'garden-item', id: copy.id });
+  } else if (s.kind === 'garden-area') {
+    const a = gardenOf(d).areas.find((x) => x.id === s.id);
+    if (!a) return;
+    const copy = { ...a, id: uid('ga'), name: `${a.name} copy`, points: a.points.map((p) => add(p, off)) };
+    store.update((dd) => ({ ...dd, garden: { ...gardenOf(dd), areas: [...gardenOf(dd).areas, copy] } }));
+    store.select({ kind: 'garden-area', id: copy.id });
   } else if (s.kind === 'electric') {
     // Wall-mounted: further along the same wall; ceiling fittings: alongside. The copy starts with no lights linked.
     const e = d.electrical.find((x) => x.id === s.id);
@@ -149,6 +170,10 @@ export function duplicateSelection() {
 
 export function rotateSelection(by: number) {
   const s = store.state.selection;
+  if (s?.kind === 'garden-item') {
+    store.update((d) => ({ ...d, garden: { ...gardenOf(d), items: gardenOf(d).items.map((i) => (i.id === s.id ? { ...i, rotation: normAngle(i.rotation + by) } : i)) } }));
+    return;
+  }
   if (!s || s.kind !== 'item') return;
   store.update((d) => ({
     ...d,
@@ -164,6 +189,13 @@ export function nudgeSelection(dx: number, dy: number) {
     if (s.kind === 'item') return { ...d, items: d.items.map((i) => (i.id === s.id ? { ...i, x: i.x + dx, y: i.y + dy } : i)) };
     if (s.kind === 'room') return { ...d, rooms: d.rooms.map((r) => (r.id === s.id ? { ...r, points: r.points.map((p) => add(p, dv)) } : r)) };
     if (s.kind === 'electric') return { ...d, electrical: d.electrical.map((e) => (e.id === s.id ? { ...e, x: e.x + dx, y: e.y + dy } : e)) };
+    if (s.kind === 'garden-item') return { ...d, garden: { ...gardenOf(d), items: gardenOf(d).items.map((i) => (i.id === s.id ? { ...i, x: i.x + dx, y: i.y + dy } : i)) } };
+    if (s.kind === 'garden-area' || s.kind === 'block') {
+      const id = s.kind === 'block' ? 'block' : s.id;
+      const g = gardenOf(d);
+      const orig = id === 'block' ? (g.block?.points ?? []) : (g.areas.find((a) => a.id === id)?.points ?? []);
+      return editOutline(d, id, { op: 'translate', orig, delta: dv });
+    }
     if (s.kind === 'dimension')
       return { ...d, dimensions: d.dimensions.map((m) => (m.id === s.id ? { ...m, a: add(m.a, dv), b: add(m.b, dv) } : m)) };
     if (s.kind === 'wall') {
